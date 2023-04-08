@@ -94,17 +94,7 @@ class LearningShapeletsCL:
     def set_scheduler(self, scheduler):
         self.scheduler = scheduler
 
-    def set_shapelet_weights(self, weights):
-        self.model.set_shapelet_weights(weights)
-        if self.optimizer is not None:
-            warnings.warn("Updating the model parameters requires to reinitialize the optimizer. Please reinitialize"
-                          " the optimizer via set_optimizer(optim)")
 
-    def set_shapelet_weights_of_block(self, i, weights):
-        self.model.set_shapelet_weights_of_block(i, weights)
-        if self.optimizer is not None:
-            warnings.warn("Updating the model parameters requires to reinitialize the optimizer. Please reinitialize"
-                          " the optimizer via set_optimizer(optim)")
     
     def update(self, x, y):
         y_hat = self.model(x)
@@ -472,14 +462,7 @@ class LearningShapeletsCL:
         
         return preds.detach().numpy() 
 
-    def get_shapelets(self):
-        """
-        Return a matrix of all shapelets. The shapelets are ordered (ascending) according to
-        the shapelet lengths and padded with NaN.
-        @return: an array of all shapelets
-        @rtype: numpy.array(float) with shape (in_channels, num_total_shapelets, shapelets_size_max)
-        """
-        return self.model.get_shapelets().clone().cpu().detach().numpy()
+
 
 
 
