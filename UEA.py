@@ -41,8 +41,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('dataset', help='UEA dataset name')
 parser.add_argument('-s', '--seed', default=42, type=int, help='random seed')
 parser.add_argument('-T', '--temperature', default=0.1, type=float, help='temperature')
-parser.add_argument('-l3', '--l3', default=1e-2, type=float, help='CCA weight')
-parser.add_argument('-l4', '--l4', default=1.0, type=float, help='SDL weight')
+parser.add_argument('-l', '--lambda', default=1e-2, type=float, help='multi-scale alignment weight')
+parser.add_argument('-ls', '--lambda-s', default=1.0, type=float, help='SDL weight')
 parser.add_argument('-a', '--alpha', default=0.5, type=float, help='covariance matrix decay')
 parser.add_argument('-b', '--batch-size', default=8, type=int)
 parser.add_argument('-g', '--to-cuda', default=True, type=bool)
@@ -57,7 +57,7 @@ parser.add_argument('--task', default='classification', type=str)
 
 
 
-def evaluate_UEA(dataset, seed=42, T=0.1, l2=1e-2, l3=1e-2, l4=1.0, alpha=0.5, batch_size=8, to_cuda=True, eval_per_x_epochs=10, dist_measure='mix', rank=-1, world_size=-1, resize=0, checkpoint=False, task='classification'):
+def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=8, to_cuda=True, eval_per_x_epochs=10, dist_measure='mix', rank=-1, world_size=-1, resize=0, checkpoint=False, task='classification'):
     is_ddp = False
     if rank != -1 and world_size != -1:
         is_ddp = True
@@ -109,9 +109,8 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l2=1e-2, l3=1e-2, l4=1.0, alpha=0.5, b
                                        to_cuda=to_cuda,
                                        verbose=0,
                                        dist_measure=dist_measure,
-                                       l2=l2,
-                                       l3=l3,
-                                       l4=l4,
+                                       l3=l,
+                                       l4=ls,
                                        T=T,
                                        alpha=alpha,
                                        is_ddp=is_ddp,
@@ -203,8 +202,8 @@ def main(rank, world_size):
     results = evaluate_UEA(args.dataset,
                             seed=args.seed,
                             T=args.temperature,
-                            l3=args.l3,
-                            l4=args.l4,
+                            l=args.l,
+                            ls=args.ls,
                             alpha=args.alpha,
                             batch_size=args.batch_size,
                             to_cuda=args.to_cuda,
