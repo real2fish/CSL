@@ -1,4 +1,4 @@
-# Contrasitive Shapelet Learning for General-purpose Unsupervised (Self-supervised) Multivariate Time Series Representation Learning
+# Official Implementation of the Contrastive Shapelet Learning (CSL) Approach for General-purpose Unsupervised (Self-supervised) Multivariate Time Series Representation Learning
 
 ## Requirements
 * Python3.x
