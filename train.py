@@ -37,7 +37,7 @@ class LearningShapeletsCL:
         if true loads everything to the GPU
     """
     def __init__(self, shapelets_size_and_len, loss_func, in_channels=1, num_classes=2,
-                 dist_measure='euclidean', verbose=0, to_cuda=True, k=0, l1=0.0, l2=0.0, l3=0.0, l4=0.0, T=0.1, alpha=0.0, is_ddp=False, checkpoint=False, seed=None):
+                 dist_measure='euclidean', verbose=0, to_cuda=True, l3=0.0, l4=0.0, T=0.1, alpha=0.0, is_ddp=False, checkpoint=False, seed=None):
         self.is_ddp = is_ddp
         self.checkpoint = checkpoint
         self.seed = seed
@@ -61,9 +61,7 @@ class LearningShapeletsCL:
         self.scheduler = None
 
         
-        #self.k = k
-        #self.l1 = l1
-        #self.l2 = l2
+     
         self.l3 = l3
         self.l4 = l4
         self.alpha = alpha
@@ -303,23 +301,7 @@ class LearningShapeletsCL:
         
         
     def train(self, X, epochs=1, batch_size=256, epoch_idx=-1):
-        """
-        Train the model.
-        @param X: the time series data set
-        @type X: array-like(float) of shape (n_samples, in_channels, len_ts)
-        @param Y: the labels of x
-        @type Y: array-like(long) of shape (n_batch)
-        @param epochs: the number of epochs to train
-        @type epochs: int
-        @param batch_size: the batch to train with
-        @type batch_size: int
-        @param shuffle: Shuffle the data at every epoch
-        @type shuffle: bool
-        @param drop_last: Drop the last batch if X is not divisible by the batch size
-        @type drop_last: bool
-        @return: a list of the training losses
-        @rtype: list(float)
-        """
+        
         if self.optimizer is None:
             raise ValueError("No optimizer set. Please initialize an optimizer via set_optimizer(optim)")
         
@@ -410,13 +392,6 @@ class LearningShapeletsCL:
         losses_ce, losses_dist)
 
     def transform(self, X, *, batch_size=512, result_type='tensor', normalize=False):
-        """
-        Performs the shapelet transform with the input time series data x
-        @param X: the time series data
-        @type X: tensor(float) of shape (n_samples, in_channels, len_ts)
-        @return: the shapelet transform of x
-        @rtype: tensor(float) of shape (num_samples, num_shapelets)
-        """
         if not isinstance(X, torch.Tensor):
             X = torch.tensor(X, dtype=torch.float)
         
@@ -438,13 +413,7 @@ class LearningShapeletsCL:
         return shapelet_transform.detach().numpy()
     
     def predict(self, X, *, batch_size=512):
-        """
-        Performs the shapelet transform with the input time series data x
-        @param X: the time series data
-        @type X: tensor(float) of shape (n_samples, in_channels, len_ts)
-        @return: the shapelet transform of x
-        @rtype: tensor(float) of shape (num_samples, num_shapelets)
-        """
+ 
         if not isinstance(X, torch.Tensor):
             X = torch.tensor(X, dtype=torch.float)
         
