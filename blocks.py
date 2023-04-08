@@ -82,56 +82,8 @@ class MinEuclideanDistBlock(nn.Module):
         x, _ = torch.min(x, 3)
         return x
 
-    def get_shapelets(self):
-        """
-        Return the shapelets contained in this block.
-        @return: An array containing the shapelets
-        @rtype: tensor(float) with shape (num_shapelets, in_channels, shapelets_size)
-        """
-        return self.shapelets.transpose(1, 0)
-
-    def set_shapelet_weights(self, weights):
-        """
-        Set weights for all shapelets in this block.
-        @param weights: the weights to set for the shapelets
-        @type weights: array-like(float) of shape (num_shapelets, in_channels, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        if not isinstance(weights, torch.Tensor):
-            weights = torch.tensor(weights, dtype=torch.float)
-        if self.to_cuda:
-            weights = weights.cuda()
-        # transpose since internally we need shape (in_channels, num_shapelets, shapelets_size)
-        weights = weights.transpose(1, 0)
-
-        if not list(weights.shape) == list(self.shapelets.shape):
-            raise ValueError(f"Shapes do not match. Currently set weights have shape {list(self.shapelets.shape)}"
-                             f"compared to {list(weights.shape)}")
-
-        self.shapelets = nn.Parameter(weights)
-        self.shapelets.retain_grad()
-
-    def set_weights_of_single_shapelet(self, j, weights):
-        """
-        Set the weights of a single shapelet.
-        @param j: The index of the shapelet to set
-        @type j: int
-        @param weights: the weights for the shapelet
-        @type weights: array-like(float) of shape (in_channels, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        if not list(weights.shape) == list(self.shapelets[:, j].shape):
-            raise ValueError(f"Shapes do not match. Currently set weights have shape {list(self.shapelets[:, j].shape)}"
-                             f"compared to {list(weights[j].shape)}")
-        if not isinstance(weights, torch.Tensor):
-            weights = torch.Tensor(weights, dtype=torch.float)
-        if self.to_cuda:
-            weights = weights.cuda()
-        self.shapelets[:, j] = weights
-        self.shapelets = nn.Parameter(self.shapelets).contiguous()
-        self.shapelets.retain_grad()
+  
+   
 
         
 class MaxCosineSimilarityBlock(nn.Module):
@@ -219,54 +171,7 @@ class MaxCosineSimilarityBlock(nn.Module):
         x, _ = torch.max(x, 3)
         return x
 
-    def get_shapelets(self):
-        """
-        Return the shapelets contained in this block.
-        @return: An array containing the shapelets
-        @rtype: tensor(float) with shape (num_shapelets, in_channels, shapelets_size)
-        """
-        return self.shapelets.transpose(1, 0)
-
-    def set_shapelet_weights(self, weights):
-        """
-        Set weights for all shapelets in this block.
-        @param weights: the weights to set for the shapelets
-        @type weights: array-like(float) of shape (num_shapelets, in_channels, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        if not isinstance(weights, torch.Tensor):
-            weights = torch.tensor(weights, dtype=torch.float)
-        if self.to_cuda:
-            weights = weights.cuda()
-        # transpose since internally we need shape (in_channels, num_shapelets, shapelets_size)
-        weights = weights.transpose(1, 0)
-
-        if not list(weights.shape) == list(self.shapelets.shape):
-            raise ValueError(f"Shapes do not match. Currently set weights have shape {list(self.shapelets.shape)} "
-                             f"compared to {list(weights.shape)}")
-
-        self.shapelets = nn.Parameter(weights)
-
-    def set_weights_of_single_shapelet(self, j, weights):
-        """
-        Set the weights of a single shapelet.
-        @param j: The index of the shapelet to set
-        @type j: int
-        @param weights: the weights for the shapelet
-        @type weights: array-like(float) of shape (in_channels, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        if not list(weights.shape) == list(self.shapelets[:, j].shape):
-            raise ValueError(f"Shapes do not match. Currently set weights have shape {list(self.shapelets[:, j].shape)} "
-                             f"compared to {list(weights[j].shape)}")
-        if not isinstance(weights, torch.Tensor):
-            weights = torch.Tensor(weights, dtype=torch.float)
-        if self.to_cuda:
-            weights = weights.cuda()
-        self.shapelets[:, j] = weights
-        self.shapelets = nn.Parameter(self.shapelets).contiguous()
+   
         
 
 class MaxCrossCorrelationBlock(nn.Module):
@@ -284,7 +189,6 @@ class MaxCrossCorrelationBlock(nn.Module):
     cuda : bool
         if true loads everything to the GPU
     """
-    # TODO Why is this multiple time slower than the other two implementations?
     def __init__(self, shapelets_size, num_shapelets, in_channels=1, to_cuda=True):
         super(MaxCrossCorrelationBlock, self).__init__()
         self.shapelets = nn.Conv1d(in_channels, num_shapelets, kernel_size=shapelets_size)
@@ -311,60 +215,12 @@ class MaxCrossCorrelationBlock(nn.Module):
         x, _ = torch.max(x, 2, keepdim=True)
         return x.transpose(2, 1)
 
-    def get_shapelets(self):
-        """
-        Return the shapelets contained in this block.
-        @return: An array containing the shapelets
-        @rtype: tensor(float) with shape (num_shapelets, in_channels, shapelets_size)
-        """
-        return self.shapelets.weight.data
-
-    def set_shapelet_weights(self, weights):
-        """
-        Set weights for all shapelets in this block.
-        @param weights: the weights to set for the shapelets
-        @type weights: array-like(float) of shape (num_shapelets, in_channels, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        if not isinstance(weights, torch.Tensor):
-            weights = torch.tensor(weights, dtype=torch.float)
-        if self.to_cuda:
-            weights = weights.cuda()
-
-        if not list(weights.shape) == list(self.shapelets.weight.data.shape):
-            raise ValueError(f"Shapes do not match. Currently set weights have shape"
-                             f"{list(self.shapelets.weight.data.shape)} compared to {list(weights.shape)}")
-
-        self.shapelets.weight.data = weights
-
-    def set_weights_of_single_shapelet(self, j, weights):
-        """
-        Set the weights of a single shapelet.
-        @param j: The index of the shapelet to set
-        @type j: int
-        @param weights: the weights for the shapelet
-        @type weights: array-like(float) of shape (in_channels, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        if not list(weights.shape) == list(self.shapelets.weight.data[j, :].shape):
-            raise ValueError(f"Shapes do not match. Currently set weights have shape"
-                             f"{list(self.shapelets.weight.data[j, :].shape)} compared to {list(weights.shape)}")
-        if not isinstance(weights, torch.Tensor):
-            weights = torch.tensor(weights, dtype=torch.float)
-        if self.to_cuda:
-            weights = weights.cuda()
-        self.shapelets.weight.data[j, :] = weights
+    
 
 
 
 class ShapeletsDistBlocks(nn.Module):
     """
-    Defines a number of blocks containing a number of shapelets, whereas
-    the shapelets in each block have the same size.
-    Parameters
-    ----------
     shapelets_size_and_len : dict(int:int)
         keys are the length of the shapelets for a block and the values the number of shapelets for the block
     in_channels : int
@@ -448,79 +304,10 @@ class ShapeletsDistBlocks(nn.Module):
         """
         return self.blocks[i]
 
-    def set_shapelet_weights_of_block(self, i, weights):
-        """
-        Set the weights of the shapelet block i.
-        @param i: the index of the shapelet block
-        @type i: int
-        @param weights: the weights to set for the shapelets
-        @type weights: array-like(float) of shape (in_channels, num_shapelets, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        self.blocks[i].set_shapelet_weights(weights)
-
-    def get_shapelets_of_block(self, i):
-        """
-        Return the shapelet of shapelet block i.
-        @param i: the index of the shapelet block
-        @type i: int
-        @return: the weights of the shapelet block
-        @rtype: tensor(float) of shape (in_channels, num_shapelets, shapelets_size)
-        """
-        return self.blocks[i].get_shapelets()
-
-    def get_shapelet(self, i, j):
-        """
-        Return the shapelet at index j of shapelet block i.
-        @param i: the index of the shapelet block
-        @type i: int
-        @param j: the index of the shapelet in shapelet block i
-        @type j: int
-        @return: return the weights of the shapelet
-        @rtype: tensor(float) of shape
-        """
-        shapelet_weights = self.blocks[i].get_shapelets()
-        return shapelet_weights[j, :]
-
-    def set_shapelet_weights_of_single_shapelet(self, i, j, weights):
-        """
-        Set the weights of shapelet j of shapelet block i.
-        @param i: the index of the shapelet block
-        @type i: int
-        @param j: the index of the shapelet in shapelet block i
-        @type j: int
-        @param weights: the new weights for the shapelet
-        @type weights: array-like of shape (in_channels, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        self.blocks[i].set_weights_of_single_shapelet(j, weights)
-
-    def get_shapelets(self):
-        """
-        Return a matrix of all shapelets. The shapelets are ordered (ascending) according to
-        the shapelet lengths and padded with NaN.
-        @return: a tensor of all shapelets
-        @rtype: tensor(float) with shape (in_channels, num_total_shapelets, shapelets_size_max)
-        """
-        max_shapelet_len = max(self.shapelets_size_and_len.keys())
-        num_total_shapelets = sum(self.shapelets_size_and_len.values())
-        shapelets = torch.Tensor(num_total_shapelets, self.in_channels, max_shapelet_len)
-        shapelets[:] = np.nan
-        start = 0
-        for block in self.blocks:
-            shapelets_block = block.get_shapelets()
-            end = start + block.num_shapelets
-            shapelets[start:end, :, :block.shapelets_size] = shapelets_block
-            start += block.num_shapelets
-        return shapelets
+  
 
 class LearningShapeletsModel(nn.Module):
     """
-    Implements Learning Shapelets. Just puts together the ShapeletsDistBlocks with a
-    linear layer on top.
-    ----------
     shapelets_size_and_len : dict(int:int)
         keys are the length of the shapelets for a block and the values the number of shapelets for the block
     in_channels : int
@@ -591,63 +378,11 @@ class LearningShapeletsModel(nn.Module):
         """
         return self.shapelets_blocks(X)
 
-    def get_shapelets(self):
-        """
-        Return a matrix of all shapelets. The shapelets are ordered (ascending) according to
-        the shapelet lengths and padded with NaN.
-        @return: a tensor of all shapelets
-        @rtype: tensor(float) with shape (in_channels, num_total_shapelets, shapelets_size_max)
-        """
-        return self.shapelets_blocks.get_shapelets()
-
-    def set_shapelet_weights(self, weights):
-        """
-        Set the weights of all shapelets. The shapelet weights are expected to be ordered ascending according to the
-        length of the shapelets. The values in the matrix for shapelets of smaller length than the maximum
-        length are just ignored.
-        @param weights: the weights to set for the shapelets
-        @type weights: array-like(float) of shape (in_channels, num_total_shapelets, shapelets_size_max)
-        @return:
-        @rtype: None
-        """
-        start = 0
-        for i, (shapelets_size, num_shapelets) in enumerate(self.shapelets_size_and_len.items()):
-            end = start + num_shapelets
-            self.set_shapelet_weights_of_block(i, weights[start:end, :, :shapelets_size])
-            start = end
-
-    def set_shapelet_weights_of_block(self, i, weights):
-        """
-        Set the weights of shapelet block i.
-        @param i: The index of the shapelet block
-        @type i: int
-        @param weights: the weights for the shapelets of block i
-        @type weights: array-like(float) of shape (in_channels, num_shapelets, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        self.shapelets_blocks.set_shapelet_weights_of_block(i, weights)
-
-    def set_weights_of_shapelet(self, i, j, weights):
-        """
-        Set the weights of shapelet j in shapelet block i.
-        @param i: the index of the shapelet block
-        @type i: int
-        @param j: the index of the shapelet in shapelet block i
-        @type j: int
-        @param weights: the weights for the shapelet
-        @type weights: array-like(float) of shape (in_channels, shapelets_size)
-        @return:
-        @rtype: None
-        """
-        self.shapelets_blocks.set_shapelet_weights_of_single_shapelet(i, j, weights)
+  
 
 
 class LearningShapeletsModelMixDistances(nn.Module):
     """
-    Implements Learning Shapelets. Just puts together the ShapeletsDistBlocks with a
-    linear layer on top.
-    ----------
     shapelets_size_and_len : dict(int:int)
         keys are the length of the shapelets for a block and the values the number of shapelets for the block
     in_channels : int
