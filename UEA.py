@@ -41,8 +41,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('dataset', help='UEA dataset name')
 parser.add_argument('-s', '--seed', default=42, type=int, help='random seed')
 parser.add_argument('-T', '--temperature', default=0.1, type=float, help='temperature')
-parser.add_argument('-l', '--lambda', default=1e-2, type=float, help='multi-scale alignment weight')
-parser.add_argument('-ls', '--lambda-s', default=1.0, type=float, help='SDL weight')
+parser.add_argument('-l', '--lmd', default=1e-2, type=float, help='multi-scale alignment weight')
+parser.add_argument('-ls', '--lmd-s', default=1.0, type=float, help='SDL weight')
 parser.add_argument('-a', '--alpha', default=0.5, type=float, help='covariance matrix decay')
 parser.add_argument('-b', '--batch-size', default=8, type=int)
 parser.add_argument('-g', '--to-cuda', default=True, type=bool)
@@ -202,8 +202,8 @@ def main(rank, world_size):
     results = evaluate_UEA(args.dataset,
                             seed=args.seed,
                             T=args.temperature,
-                            l=args.l,
-                            ls=args.ls,
+                            l=args.lmd,
+                            ls=args.lmd-s,
                             alpha=args.alpha,
                             batch_size=args.batch_size,
                             to_cuda=args.to_cuda,
