@@ -68,6 +68,7 @@ parser.add_argument('-c', '--checkpoint', default=False, type=bool)
 parser.add_argument('--window-size', type=int)
 parser.add_argument('--num-shapelets', type=int, default=40)
 
+
 def evaluate_ad(dataset, augmentation=False, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=256, to_cuda=True, eval_per_x_epochs=10, dist_measure='mix', rank=-1, world_size=-1, resize=0, checkpoint=False, window_size=100, num_shapelets=40):
     is_ddp = False
     if rank != -1 and world_size != -1:
@@ -197,45 +198,38 @@ def evaluate_ad(dataset, augmentation=False, seed=42, T=0.1, l=1e-2, ls=1.0, alp
         
         label = sequence_label(label, window_size=window_size)
         
-        total_progress = tqdm(range(10))
-        best_f1 = -1
-        best_preds = None
+        total_progress = tqdm(range(100))
+        
         for epoch in total_progress:
             
-                
-                
-        
+            if epoch == 0 or (epoch + 1) % eval_per_x_epochs == 0: 
+                if not is_ddp or rank == 0:
+                    transformation = learning_shapelets.transform(train_data, result_type='numpy', normalize=True, batch_size=batch_size)
+                    transformation_test = learning_shapelets.transform(test_data, result_type='numpy', normalize=True, batch_size=batch_size)
+                    clf = IsolationForest(random_state=seed).fit(transformation)
+                    preds = clf.predict(transformation_test)
+                    #print(np.where(label == -1))
+                    #print(set(preds), set(label))
+                    #print(f1_score(label, preds, pos_label=-1), recall_score(label, preds, pos_label=-1), precision_score(label, preds, pos_label=-1))
+                    f1 = f1_score(label, preds, pos_label=-1)
+                    print('------------------------------')
+                    print(args.dataset, window_size, chidx)
+                    print(f1, epoch)
+                    print('------------------------------')
+                    
             losses = learning_shapelets.train(train_data, epochs=1, batch_size=batch_size, epoch_idx=epoch)
            
             
             
-            if not is_ddp or rank == 0:
-                transformation = learning_shapelets.transform(train_data, result_type='numpy', normalize=True, batch_size=batch_size)
-                transformation_test = learning_shapelets.transform(test_data, result_type='numpy', normalize=True, batch_size=batch_size)
-                clf = IsolationForest(random_state=seed).fit(transformation)
-                preds = clf.predict(transformation_test)
-                #print(np.where(label == -1))
-                #print(set(preds), set(label))
-                #print(f1_score(label, preds, pos_label=-1), recall_score(label, preds, pos_label=-1), precision_score(label, preds, pos_label=-1))
-                f1 = f1_score(label, preds, pos_label=-1)
-                if f1 > best_f1:
-                    best_preds = preds
-                    best_f1 = f1
+           
             
             
             
-        if not is_ddp or rank == 0:
-            total_labels = np.concatenate((total_labels, label))
-            total_preds = np.concatenate((total_preds, best_preds))
-            
-            print(f1_score(label, best_preds, pos_label=-1), recall_score(label, best_preds, pos_label=-1), precision_score(label, best_preds, pos_label=-1))
         
-    if len(set(total_labels)) != 2:
-        raise ValueError
-    print(total_labels.shape, total_preds.shape)
-    print(args.dataset, window_size)
-    print(f1_score(total_labels, total_preds, pos_label=-1), recall_score(total_labels, total_preds, pos_label=-1), precision_score(total_labels, total_preds, pos_label=-1))
-    print("Finished.")
+        
+    
+    
+   
     
     
     return learning_shapelets,
