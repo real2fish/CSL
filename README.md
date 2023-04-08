@@ -21,7 +21,7 @@ Dataset, SMD](https://dl.acm.org/doi/10.1145/3292500.3330672)
 
 * [Application Server Dataset, ASD](https://dl.acm.org/doi/10.1145/3447548.3467075)
 
-The UEA datasets should be in the "Multivariate_ts/" folder with the structure `Multivariate/[dataset_name]/[dataset_name]_TRAIN.ts` and `Multivariate_ts/[dataset_name]/[dataset_name]_TEST.ts`.
+The UEA datasets should be in the "Multivariate_ts/" folder with the structure `Multivariate_ts/[dataset_name]/[dataset_name]_TRAIN.ts` and `Multivariate_ts/[dataset_name]/[dataset_name]_TEST.ts`.
 
 For SMAP and MSL datasets, create a folder named `SMAP&MSL` under 'AD_data/', and put the `.npy` data files into `AD_data/SMAP&MSL/`.
 
