@@ -8,19 +8,7 @@ from collections import OrderedDict
 from utils import generate_binomial_mask
 
 class MinEuclideanDistBlock(nn.Module):
-    """
-    Calculates the euclidean distances of a bunch of shapelets to a data set and performs global min-pooling.
-    Parameters
-    ----------
-    shapelets_size : int
-        the size of the shapelets / the number of time steps
-    num_shapelets : int
-        the number of shapelets that the block should contain
-    in_channels : int
-        the number of input channels of the dataset
-    cuda : bool
-        if true loads everything to the GPU
-    """
+  
     def __init__(self, shapelets_size, num_shapelets, in_channels=1, to_cuda=True):
         super(MinEuclideanDistBlock, self).__init__()
         self.to_cuda = to_cuda
@@ -38,13 +26,7 @@ class MinEuclideanDistBlock(nn.Module):
         self.shapelets.retain_grad()
 
     def forward(self, x, masking=False):
-        """
-        1) Unfold the data set 2) calculate euclidean distance 3) sum over channels and 4) perform global min-pooling
-        @param x: the time series data
-        @type x: tensor(float) of shape (num_samples, in_channels, len_ts)
-        @return: Return the euclidean for each pair of shapelet and time series instance
-        @rtype: tensor(num_samples, num_shapelets)
-        """
+       
         
         
         
@@ -87,19 +69,7 @@ class MinEuclideanDistBlock(nn.Module):
 
         
 class MaxCosineSimilarityBlock(nn.Module):
-    """
-    Calculates the cosine similarity of a bunch of shapelets to a data set and performs global max-pooling.
-    Parameters
-    ----------
-    shapelets_size : int
-        the size of the shapelets / the number of time steps
-    num_shapelets : int
-        the number of shapelets that the block should contain
-    in_channels : int
-        the number of input channels of the dataset
-    cuda : bool
-        if true loads everything to the GPU
-    """
+   
     def __init__(self, shapelets_size, num_shapelets, in_channels=1, to_cuda=True):
         super(MaxCosineSimilarityBlock, self).__init__()
         self.to_cuda = to_cuda
@@ -118,14 +88,7 @@ class MaxCosineSimilarityBlock(nn.Module):
         self.shapelets.retain_grad()
 
     def forward(self, x, masking=False):
-        """
-        1) Unfold the data set 2) calculate norm of the data and the shapelets 3) calculate pair-wise dot-product
-        4) sum over channels 5) perform a ReLU to ignore the negative values and 6) perform global max-pooling
-        @param x: the time series data
-        @type x: tensor(float) of shape (num_samples, in_channels, len_ts)
-        @return: Return the cosine similarity for each pair of shapelet and time series instance
-        @rtype: tensor(num_samples, num_shapelets)
-        """
+     
         """
         n_dims = x.shape[1]
         shapelets_norm = self.shapelets / self.shapelets.norm(p=2, dim=2, keepdim=True).clamp(min=1e-8)
@@ -175,20 +138,7 @@ class MaxCosineSimilarityBlock(nn.Module):
         
 
 class MaxCrossCorrelationBlock(nn.Module):
-    """
-    Calculates the cross-correlation of a bunch of shapelets to a data set, implemented via convolution and
-    performs global max-pooling.
-    Parameters
-    ----------
-    shapelets_size : int
-        the size of the shapelets / the number of time steps
-    num_shapelets : int
-        the number of shapelets that the block should contain
-    in_channels : int
-        the number of input channels of the dataset
-    cuda : bool
-        if true loads everything to the GPU
-    """
+   
     def __init__(self, shapelets_size, num_shapelets, in_channels=1, to_cuda=True):
         super(MaxCrossCorrelationBlock, self).__init__()
         self.shapelets = nn.Conv1d(in_channels, num_shapelets, kernel_size=shapelets_size)
@@ -201,13 +151,7 @@ class MaxCrossCorrelationBlock(nn.Module):
         
         
     def forward(self, x, masking=False):
-        """
-        1) Apply 1D convolution 2) Apply global max-pooling
-        @param x: the data set of time series
-        @type x: array(float) of shape (num_samples, in_channels, len_ts)
-        @return: Return the most similar values for each pair of shapelet and time series instance
-        @rtype: tensor(n_samples, num_shapelets)
-        """
+      
         x = self.shapelets(x)
         if masking:
             mask = generate_binomial_mask(x.shape)
@@ -220,16 +164,7 @@ class MaxCrossCorrelationBlock(nn.Module):
 
 
 class ShapeletsDistBlocks(nn.Module):
-    """
-    shapelets_size_and_len : dict(int:int)
-        keys are the length of the shapelets for a block and the values the number of shapelets for the block
-    in_channels : int
-        the number of input channels of the dataset
-    dist_measure: 'string'
-        the distance measure, either of 'euclidean', 'cross-correlation', or 'cosine'
-    to_cuda : bool
-        if true loads everything to the GPU
-    """
+   
     def __init__(self, shapelets_size_and_len, in_channels=1, dist_measure='euclidean', to_cuda=True, checkpoint=False):
         super(ShapeletsDistBlocks, self).__init__()
         self.checkpoint = checkpoint
@@ -268,13 +203,7 @@ class ShapeletsDistBlocks(nn.Module):
             raise ValueError("dist_measure must be either of 'euclidean', 'cross-correlation', 'cosine'")
 
     def forward(self, x, masking=False):
-        """
-        Calculate the distances of each shapelet block to the time series data x and concatenate the results.
-        @param x: the time series data
-        @type x: tensor(float) of shape (n_samples, in_channels, len_ts)
-        @return: a distance matrix containing the distances of each shapelet to the time series data
-        @rtype: tensor(float) of shape
-        """
+       
         out = torch.tensor([], dtype=torch.float).cuda() if self.to_cuda else torch.tensor([], dtype=torch.float)
         for block in self.blocks:
             if self.checkpoint and self.dist_measure != 'cross-correlation':
@@ -292,18 +221,7 @@ class ShapeletsDistBlocks(nn.Module):
   
 
 class LearningShapeletsModel(nn.Module):
-    """
-    shapelets_size_and_len : dict(int:int)
-        keys are the length of the shapelets for a block and the values the number of shapelets for the block
-    in_channels : int
-        the number of input channels of the dataset
-    num_classes: int
-        the number of classes for classification
-    dist_measure: 'string'
-        the distance measure, either of 'euclidean', 'cross-correlation', or 'cosine'
-    to_cuda : bool
-        if true loads everything to the GPU
-    """
+   
     def __init__(self, shapelets_size_and_len, in_channels=1, num_classes=2, dist_measure='euclidean',
                  to_cuda=True, checkpoint=False):
         super(LearningShapeletsModel, self).__init__()
@@ -331,13 +249,7 @@ class LearningShapeletsModel(nn.Module):
             self.cuda()
 
     def forward(self, x, optimize='acc', masking=False):
-        """
-        Calculate the distances of each time series to the shapelets and stack a linear layer on top.
-        @param x: the time series data
-        @type x: tensor(float) of shape (n_samples, in_channels, len_ts)
-        @return: the logits for the class predictions of the model
-        @rtype: tensor(float) of shape (num_samples, num_classes)
-        """
+       
         x = self.shapelets_blocks(x, masking)
         
         x = torch.squeeze(x, 1)
@@ -358,18 +270,7 @@ class LearningShapeletsModel(nn.Module):
 
 
 class LearningShapeletsModelMixDistances(nn.Module):
-    """
-    shapelets_size_and_len : dict(int:int)
-        keys are the length of the shapelets for a block and the values the number of shapelets for the block
-    in_channels : int
-        the number of input channels of the dataset
-    num_classes: int
-        the number of classes for classification
-    dist_measure: 'string'
-        the distance measure, either of 'euclidean', 'cross-correlation', or 'cosine'
-    to_cuda : bool
-        if true loads everything to the GPU
-    """
+   
     def __init__(self, shapelets_size_and_len, in_channels=1, num_classes=2, dist_measure='mix',
                  to_cuda=True, checkpoint=False):
         super(LearningShapeletsModelMixDistances, self).__init__()
@@ -413,13 +314,7 @@ class LearningShapeletsModelMixDistances(nn.Module):
             self.cuda()
 
     def forward(self, x, optimize='acc', masking=False):
-        """
-        Calculate the distances of each time series to the shapelets and stack a linear layer on top.
-        @param x: the time series data
-        @type x: tensor(float) of shape (n_samples, in_channels, len_ts)
-        @return: the logits for the class predictions of the model
-        @rtype: tensor(float) of shape (num_samples, num_classes)
-        """
+       
 
         
         n_samples = x.shape[0]
