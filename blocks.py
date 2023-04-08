@@ -287,22 +287,7 @@ class ShapeletsDistBlocks(nn.Module):
 
         return out
 
-    def get_blocks(self):
-        """
-        @return: the list of shapelet blocks
-        @rtype: nn.ModuleList
-        """
-        return self.blocks
 
-    def get_block(self, i):
-        """
-        Get a specific shapelet block. The blocks are ordered (ascending) according to the shapelet lengths.
-        @param i: the index of the block to fetch
-        @type i: int
-        @return: return shapelet block i
-        @rtype: nn.Module, either
-        """
-        return self.blocks[i]
 
   
 
@@ -368,16 +353,7 @@ class LearningShapeletsModel(nn.Module):
         
         return x
 
-    def transform(self, X):
-        """
-        Performs the shapelet transform with the input time series data x
-        @param X: the time series data
-        @type X: tensor(float) of shape (n_samples, in_channels, len_ts)
-        @return: the shapelet transform of x
-        @rtype: tensor(float) of shape (num_samples, num_shapelets)
-        """
-        return self.shapelets_blocks(X)
-
+   
   
 
 
