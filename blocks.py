@@ -190,7 +190,7 @@ class ShapeletsDistBlocks(nn.Module):
         elif dist_measure == 'mix':
             module_list = []
             for shapelets_size, num_shapelets in self.shapelets_size_and_len.items():
-                module_list.append(MaxCosineSimilarityBlock(shapelets_size=shapelets_size, num_shapelets=num_shapelets//3,
+                module_list.append(MinEuclideanDistBlock(shapelets_size=shapelets_size, num_shapelets=num_shapelets//3,
                                                          in_channels=in_channels, to_cuda=self.to_cuda))
                 module_list.append(MaxCosineSimilarityBlock(shapelets_size=shapelets_size, num_shapelets=num_shapelets//3,
                                                          in_channels=in_channels, to_cuda=self.to_cuda))
