@@ -2,7 +2,7 @@
 
 ## Requirements
 * Python3.x
-* Pytorch==1.10.2
+* Pytorch
 * Numpy
 * Sklearn
 * tslearn
