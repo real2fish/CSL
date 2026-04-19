@@ -26,7 +26,7 @@ from torch.multiprocessing import Process
 from torch.nn.parallel import DistributedDataParallel as DDP
 import logs
 
-UEA_path = './Multivariate_ts'
+UEA_path = '/data/user_lixiongfei/csl_hyc/Multivariate_ts'
 UEA_datasets = os.listdir(UEA_path)
 UEA_datasets.sort()
 
@@ -197,11 +197,10 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
                     f"loss_sdl={loss_sdl_mean:.6f} | train_acc={train_acc:.4f} test_acc={test_acc:.4f}"
                 )
 
-        if epoch == epochs - 1:
+        if epoch >= 2:
             budget_gb = args.budget if args.budget is not None else float('nan')
             real_max_alloc_gb = max(logs.epoch_max_allocated, torch.cuda.max_memory_allocated()) / (1024 ** 3)
-            logger.info(f"budget(GB): {budget_gb}")
-            logger.info(f"max_memory_allocated(GB): {real_max_alloc_gb:.6f}")
+            logger.info(f"Epoch {epoch + 1:>3} | budget(GB): {budget_gb} | max_memory_allocated(GB): {real_max_alloc_gb:.6f}")
         total_progress.set_description(
             f"loss: {loss_mean:.4f}, loss_align: {loss_align_mean:.4f}, loss_sdl: {loss_sdl_mean:.4f}"
         )
