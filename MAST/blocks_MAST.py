@@ -184,7 +184,6 @@ class MinEuclideanDistBlock(nn.Module):
 
             if delta > 0:
                 logs.cdist_euclidean_mem = delta
-                print(f"[CDIST] collected; torch.cdist memory cost: {delta} ")
 
         else:
             x = torch.cdist(x, self.shapelets, p=2, compute_mode='use_mm_for_euclid_dist')

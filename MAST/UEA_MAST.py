@@ -134,9 +134,11 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
     # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, [300, 800])
     learning_shapelets.set_optimizer(optimizer)
 
-    epochs = 3
+    epochs = 10
     total_progress = tqdm(range(epochs))
     count_time = []
+    train_acc = float('nan')
+    test_acc = float('nan')
     for epoch in total_progress:
             # Reset peak-memory stats at the start of every epoch
         torch.cuda.reset_peak_memory_stats()
@@ -146,94 +148,63 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
         torch.cuda.synchronize()
         end_time = time.time()
         epoch_duration = end_time - start_time
-        logger.info(f"Epoch {epoch + 1} completed in {epoch_duration:.6f} seconds")
         if epoch >= 2:
             count_time.append(epoch_duration)
-        if epoch == 2:
 
-            logger.info("\n====================== [Epoch 1 collected statistics] ======================")
+        loss_mean = float(np.mean([loss[0] for loss in losses])) if len(losses) else float('nan')
+        loss_align_mean = float(np.mean([loss[2] for loss in losses])) if len(losses) else float('nan')
+        loss_sdl_mean = float(np.mean([loss[3] for loss in losses])) if len(losses) else float('nan')
 
-            for dist_type, records in logs.block_forward_stats_by_type.items():
-                logger.info(f"\n🔍 {dist_type.upper()} modules:")
-                for length in sorted(records.keys()):
-                    stat = records[length]              # stats for this length
-                    calls = stat["forward_calls"]     # forward call counter
-                    total_time = stat["forward_total_time"]  # total forward time
-                    avg_time = total_time / (calls - 1) if calls > 1 else 0.0
-                    peak_mb = stat["peak_mem"] / 1024 ** 2 if stat.get("peak_mem") else 0
-                    final_mb = stat["final_mem"] / 1024 ** 2 if stat.get("final_mem") else 0
-                    logger.info(f"[Shapelet {length:>3}] forward_avg={avg_time:.6f}s over {calls} calls | "
-                                f"peak={peak_mb:.2f}MB | final={final_mb:.2f}MB")
+        if not is_ddp or rank == 0:
+            if task == 'clustering':
+                transformation_test = learning_shapelets.transform(X_test, result_type='numpy', normalize=True,
+                                                                   batch_size=batch_size)
+                scaler = RobustScaler()
+                transformation_test = scaler.fit_transform(transformation_test)
 
-            for dist_type, records in logs.block_backward_stats_by_type.items():
-                logger.info(f"\n-- {dist_type.upper()} backward --")
-                for length in sorted(records.keys()):
-                    stat = records[length]
-                    calls = stat["backward_calls"]
-                    total_time = stat["backward_total_time"]
-                    avg_time = total_time / (calls - 1) if calls > 1 else 0.0
-                    peak_mb = stat["peak_mem"] / 1024 ** 2 if stat.get("peak_mem") else 0
-                    final_mb = stat["final_mem"] / 1024 ** 2 if stat.get("final_mem") else 0
-                    logger.info(f"[Shapelet {length:>3}] backward_avg={avg_time:.6f}s over {calls} calls | "
-                                f"peak={peak_mb:.2f}MB | final={final_mb:.2f}MB")
-            logger.info("\nPeak memory during the model's first backward pass (max across modules): "
-                  f"{logs.global_backward_peak_mem / 1024 ** 2:.2f} MB")
-            logger.info("\nInitial model memory: "
-                  f"{logs.global_pre_forward_mem / 1024 ** 2:.2f} MB")
-            logger.info("=======================================================================\n")
-        if epoch == 0 or (epoch + 1) % eval_per_x_epochs == 0:
-            if not is_ddp or rank == 0:
-                if task == 'clustering':
+                pca = PCA(n_components=10)
+                low_dim_test = pca.fit_transform(transformation_test)
+                preds = KMeans(n_clusters=num_classes, init='random').fit_predict(low_dim_test)
+                ri_test = rand_score(preds, y_test)
+                nmi_test = normalized_mutual_info_score(preds, y_test)
+                logger.info(
+                    f"Epoch {epoch + 1:>3} | loss={loss_mean:.6f} loss_align={loss_align_mean:.6f} "
+                    f"loss_sdl={loss_sdl_mean:.6f} | RI={ri_test:.4f} NMI={nmi_test:.4f}"
+                )
+            else:
+                transformation = learning_shapelets.transform(X_train, result_type='numpy', normalize=True,
+                                                              batch_size=batch_size)
+                transformation_test = learning_shapelets.transform(X_test, result_type='numpy', normalize=True,
+                                                                   batch_size=batch_size)
+                scaler = RobustScaler()
+                transformation = scaler.fit_transform(transformation)
+                transformation_test = scaler.transform(transformation_test)
 
-                    transformation_test = learning_shapelets.transform(X_test, result_type='numpy', normalize=True,
-                                                                       batch_size=batch_size)
-                    scaler = RobustScaler()
-                    transformation_test = scaler.fit_transform(transformation_test)
+                acc_val = -1
+                C_best = None
+                for C in [10 ** i for i in range(-4, 5)]:
+                    clf = SVC(C=C, random_state=42)
+                    acc_i = cross_val_score(clf, transformation, y_train, cv=5)
+                    if acc_i.mean() > acc_val:
+                        C_best = C
+                clf = SVC(C=C_best, random_state=42)
+                clf.fit(transformation, y_train)
+                train_acc = accuracy_score(clf.predict(transformation), y_train)
+                test_acc = accuracy_score(clf.predict(transformation_test), y_test)
 
-                    pca = PCA(n_components=10)
-                    low_dim_test = pca.fit_transform(transformation_test)
-                    preds = KMeans(n_clusters=num_classes, init='random').fit_predict(low_dim_test)
-                    ri_test = rand_score(preds, y_test)
-                    nmi_test = normalized_mutual_info_score(preds, y_test)
-                    if not is_ddp or rank == 0:
-                        print('KMeans: ', ri_test, nmi_test, epoch)
+                logger.info(
+                    f"Epoch {epoch + 1:>3} | loss={loss_mean:.6f} loss_align={loss_align_mean:.6f} "
+                    f"loss_sdl={loss_sdl_mean:.6f} | train_acc={train_acc:.4f} test_acc={test_acc:.4f}"
+                )
 
-
-                else:
-
-                    transformation = learning_shapelets.transform(X_train, result_type='numpy', normalize=True,
-                                                                  batch_size=batch_size)
-                    transformation_test = learning_shapelets.transform(X_test, result_type='numpy', normalize=True,
-                                                                       batch_size=batch_size)
-                    scaler = RobustScaler()
-                    transformation = scaler.fit_transform(transformation)
-                    transformation_test = scaler.transform(transformation_test)
-
-                    acc_val = -1
-                    C_best = None
-                    for C in [10 ** i for i in range(-4, 5)]:
-                        clf = SVC(C=C, random_state=42)
-                        acc_i = cross_val_score(clf, transformation, y_train, cv=5)
-                        if acc_i.mean() > acc_val:
-                            C_best = C
-                    clf = SVC(C=C_best, random_state=42)
-                    clf.fit(transformation, y_train)
-                    train_acc = accuracy_score(clf.predict(transformation), y_train)
-                    test_acc = accuracy_score(clf.predict(transformation_test), y_test)
-
-                    if not is_ddp or rank == 0:
-                        # pass
-                        print('Classification:', train_acc, test_acc, epoch)
-
-        logger.info(f"torch.cuda.max_memory_reserved() : {torch.cuda.max_memory_reserved()/(1024**3)}")
-        logger.info(f"torch.cuda.max_memory_allocated() : {max(logs.epoch_max_allocated, torch.cuda.max_memory_allocated())/(1024**3)}")
-        # total_progress.set_description(f"loss: {np.mean(losses)}")
-        total_progress.set_description(f"loss: {np.mean([loss[0] for loss in losses])},"
-                                       f"loss_align: {np.mean([loss[2] for loss in losses])},"
-                                       f"loss_sdl: {np.mean([loss[3] for loss in losses])}")
-
-    logger.info(f"!!! average per-epoch time after applying the strategy: {sum(count_time) / len(count_time)}")
-    logger.info(f"\n\n\n")
+        if epoch == epochs - 1:
+            budget_gb = args.budget if args.budget is not None else float('nan')
+            real_max_alloc_gb = max(logs.epoch_max_allocated, torch.cuda.max_memory_allocated()) / (1024 ** 3)
+            logger.info(f"budget(GB): {budget_gb}")
+            logger.info(f"max_memory_allocated(GB): {real_max_alloc_gb:.6f}")
+        total_progress.set_description(
+            f"loss: {loss_mean:.4f}, loss_align: {loss_align_mean:.4f}, loss_sdl: {loss_sdl_mean:.4f}"
+        )
 
     return learning_shapelets, train_acc, test_acc
 

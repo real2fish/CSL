@@ -152,21 +152,6 @@ class LearningShapeletsCL:
         logs.model_param_memory_bytes = total_bytes
         logs.model_param_count = total_params
 
-        logger = getattr(self, "logger", None)
-        if logger is None:
-            return
-
-        logger.info("Parameter memory stats (unit: MB)")
-
-        for dist_type in ("euclidean", "cosine", "cross"):
-            if not logs.block_param_memory_by_type[dist_type]:
-                continue
-            type_total = sum(logs.block_param_memory_by_type[dist_type].values())
-            logger.info(f"[param memory] {dist_type} total: {type_total / 1024 ** 2:.4f} MB")
-            for length, mem in sorted(logs.block_param_memory_by_type[dist_type].items()):
-                logger.info(f"[param memory] {dist_type} length={length}: {mem / 1024 ** 2:.4f} MB")
-
-        logger.info(f"[param memory] total params: {total_params:,}, memory: {total_bytes / 1024 ** 2:.4f} MB")
 
     def set_optimizer(self, optimizer):
         self.optimizer = optimizer
@@ -382,7 +367,6 @@ class LearningShapeletsCL:
             logs.euclidean_checkpoint_shapelet_lengths = shapelet_lengths.copy()
             logs.cosine_checkpoint_shapelet_lengths = shapelet_lengths.copy()
             logs.cross_checkpoint_shapelet_lengths = shapelet_lengths.copy()
-            self.logger.info("First epoch: by default all modules use checkpoint")
 
         for epoch in progress_bar:
             logs.epoch_max_allocated = 0
@@ -450,10 +434,7 @@ class LearningShapeletsCL:
                     # Enable the memory scheduler only when checkpoint is on AND --budget is provided;
                     # otherwise keep the epoch-0 default of "all modules checkpointed".
                     if self.checkpoint and getattr(self.args, 'budget', None) is not None:
-                        start = time.perf_counter()
                         self.plan_checkpoint_schedule()
-                        elapsed = time.perf_counter() - start
-                        self.logger.info(f"Memory plan scheduling time: {elapsed:.6f} s")
 
 
 
@@ -681,11 +662,6 @@ class LearningShapeletsCL:
             backward_peak_values.append(get_backward_peak(i))
             retain.append(get_M_by_idx(i))
 
-        print(memory_limit/1024/1024)
-        print(global_pre_forward_mem/1024/1024)
-        print(retain[0]/1024/1024)
-        print(forward_peak_values[0]/1024/1024)
-        print(backward_peak_values[0]/1024/1024)
         solution, _ = solve_memory_budget(
             memory_budget=memory_limit,
             forward_peak_values=forward_peak_values,
@@ -699,24 +675,9 @@ class LearningShapeletsCL:
             T_cross=T_cross,
             b=b,
         )
-        kept = sum(solution)
-        print(f" keep {kept}/{N} activations -> {solution}")
         z_best = np.array(solution)
         for i in range(N):
             x[i + 1] = int(z_best[i])
-
-        # Verify retained memory before/after planning
-        plan_mem = float(memory_limit)/float(1024**3)
-        # Compute the retained memory implied by z_best
-        real_mem = 0.0
-        for i in range(0, N):
-            if z_best[i] == 1:
-                block_MEM = get_M_by_idx(i + 1)
-                real_mem += block_MEM
-                print(f"module {i+1}  save checkpoint, memory {block_MEM/1024/1024} MB")
-
-        self.logger.info(f"memory before planning (GB): {plan_mem}")
-        self.logger.info(f"memory after  planning (GB): {float(real_mem)/float(1024**3)}")
 
         self.logger.info(f"Best strategy: {z_best.tolist()}")
 
@@ -735,11 +696,6 @@ class LearningShapeletsCL:
             [shapelet_lengths[i] for i in range(n_lengths) if z_best[i + 2 * n_lengths] == 0]
         )
 
-        self.logger.info(f"Checkpointed euclidean lengths: {logs.euclidean_checkpoint_shapelet_lengths}")
-        self.logger.info(f"Checkpointed cosine    lengths: {logs.cosine_checkpoint_shapelet_lengths}")
-        self.logger.info(f"Checkpointed cross     lengths: {logs.cross_checkpoint_shapelet_lengths}")
-
-        self.logger.info(f"Final memory peak: {compute_overall_peak() / 1024 ** 2:.2f} MB")
 
     def estimate_backward_time_bias(self):
         """
@@ -790,11 +746,6 @@ class LearningShapeletsCL:
 
         b = logs.global_backward_total_time - (A + B)
         logs.global_backward_b = b  # store globally
-
-        self.logger.info("\n[Fit backward-time model]")
-        self.logger.info(f"Total backward time: {logs.global_backward_total_time:.6f}s")
-        self.logger.info("Fitted model: backward_total ~= 3 * (A_euc+cos) + 3 * (B_cross) + b")
-        self.logger.info(f"A = {A:.6f}, B = {B:.6f}, b = {b:.6f}s")
 
     def transform(self, X, *, batch_size=512, result_type='tensor', normalize=False):
         if not isinstance(X, torch.Tensor):

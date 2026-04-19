@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional, Sequence, Tuple
 
+import gurobipy as _gp
 from gurobipy import GRB, Constr, LinExpr, Model, quicksum, tupledict
+
+
+_SILENT_GRB_ENV = _gp.Env(empty=True)
+_SILENT_GRB_ENV.setParam("OutputFlag", 0)
+_SILENT_GRB_ENV.start()
 
 
 def add_memory_peak_constraints(
@@ -181,7 +187,7 @@ def solve_memory_budget(
         - Binary solution vector x[i] (rounded to {0,1}).
         - The solved gurobipy model instance (for further inspection).
     """
-    model = Model(model_name)
+    model = Model(model_name, env=_SILENT_GRB_ENV)
     if time_limit is not None:
         model.setParam(GRB.Param.TimeLimit, time_limit)
 
