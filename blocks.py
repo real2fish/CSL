@@ -13,9 +13,10 @@ import logs
 
 def _skip_checkpoint_for_per_block_bw_profile() -> bool:
     """
-    gradient checkpoint 重算路径下，子模块的 register_full_backward_pre_hook 往往不按块出现，
-    Chrome trace 里会看不到 shapelets_bw。设环境变量 CSL_DETAIL_BW_IN_PROFILER=1 可临时走
-    非 checkpoint 前向，便于 profiler 里看到每个 block 的反向区间（显存会升高）。
+    Under the gradient-checkpoint recompute path, submodule register_full_backward_pre_hook
+    callbacks often don't fire per block, so the Chrome trace will lack `shapelets_bw` ranges.
+    Setting the env var `CSL_DETAIL_BW_IN_PROFILER=1` temporarily disables checkpointing in
+    forward so each block's backward range is visible in the profiler (memory usage will rise).
     """
     return os.environ.get("CSL_DETAIL_BW_IN_PROFILER", "").strip().lower() in (
         "1",
@@ -55,7 +56,7 @@ def _accumulate_block_backward_stats(module: nn.Module, dist_type: str) -> None:
 
 
 def _backward_profiler_label(module: nn.Module) -> str:
-    """与 forward 中 shapelets/... 对称，便于在 trace 里区分前向/反向。"""
+    """Symmetric to the forward `shapelets/...` label so forward/backward are distinguishable in the trace."""
     return f"shapelets_bw/L{module.shapelets_size}/{module.__class__.__name__}"
 
 
@@ -68,8 +69,10 @@ def _exit_backward_record_function(module: nn.Module) -> None:
 
 class _BwRangeIn(torch.autograd.Function):
     """
-    插在共享输入 x 与各 block 之间。反向顺序：… → block.backward → _BwRangeIn.backward → x。
-    在此结束 record_function、累积反向统计（与 _BwRangeOut 成对夹住 block 的整条反向）。
+    Inserted between the shared input `x` and each block. Backward order:
+    ... -> block.backward -> _BwRangeIn.backward -> x.
+    Here we close the record_function range and accumulate backward stats
+    (paired with _BwRangeOut to bracket the whole backward of one block).
     """
 
     @staticmethod
@@ -89,8 +92,10 @@ class _BwRangeIn(torch.autograd.Function):
 
 class _BwRangeOut(torch.autograd.Function):
     """
-    插在 block 输出与 torch.cat 之间。反向顺序：cat → _BwRangeOut.backward → block.backward → …
-    在此启动计时、重置峰值显存、进入 record_function（与 _BwRangeIn 成对）。
+    Inserted between a block's output and torch.cat. Backward order:
+    cat -> _BwRangeOut.backward -> block.backward -> ...
+    Here we start the timer, reset peak-memory stats, and enter the record_function range
+    (paired with _BwRangeIn).
     """
 
     @staticmethod
@@ -141,7 +146,7 @@ class MinEuclideanDistBlock(nn.Module):
         self.shapelets_size = shapelets_size
         self.in_channels = in_channels
         self.checkpoint = checkpoint
-        self._first_forward_skipped = False  # 用于标记是否已经跳过第一次
+        self._first_forward_skipped = False  # whether the very first forward has been skipped
         # if not registered as parameter, the optimizer will not be able to see the parameters
         shapelets = torch.randn(self.in_channels, self.num_shapelets, self.shapelets_size, requires_grad=True,
                                 dtype=torch.float)
@@ -157,7 +162,7 @@ class MinEuclideanDistBlock(nn.Module):
         current_backward_mem = torch.cuda.max_memory_allocated()
         logs.global_backward_peak_mem = max(logs.global_backward_peak_mem, current_backward_mem)
 
-        # ✅ 只记录一次 forward 前的显存（首次模块 forward）
+        # Record the pre-forward memory only once (on the first module forward)
         if logs.global_pre_forward_mem is None:
             logs.global_pre_forward_mem = torch.cuda.memory_allocated()
 
@@ -179,7 +184,7 @@ class MinEuclideanDistBlock(nn.Module):
 
             if delta > 0:
                 logs.cdist_euclidean_mem = delta
-                print(f"[CDIST] 收集成功，torch.cdist 显存消耗: {delta} ")
+                print(f"[CDIST] collected; torch.cdist memory cost: {delta} ")
 
         else:
             x = torch.cdist(x, self.shapelets, p=2, compute_mode='use_mm_for_euclid_dist')
@@ -327,7 +332,7 @@ class MaxCrossCorrelationBlock(nn.Module):
         _register_block_backward_profiling(self, "cross")
 
     def forward(self, x, masking=False):
-        # 与 euclidean 一致：第一次进入任何 block 时记录全局初始显存
+        # Same as euclidean: record the global initial memory the first time any block is entered
         if torch.cuda.is_available() and logs.global_pre_forward_mem is None:
             logs.global_pre_forward_mem = torch.cuda.memory_allocated()
 
@@ -435,8 +440,8 @@ class ShapeletsDistBlocks(nn.Module):
         _no_ckpt = _skip_checkpoint_for_per_block_bw_profile()
         for i, (shapelets_size, _) in enumerate(self.shapelets_size_and_len.items()):
             block = self.blocks[i]
-            # 双节点夹住 block：x → _BwRangeIn → block → _BwRangeOut → cat
-            # 反向：cat → _BwRangeOut（起计时 + record_function）→ block → _BwRangeIn（收尾 + 统计）
+            # Bracket the block with two nodes: x -> _BwRangeIn -> block -> _BwRangeOut -> cat
+            # Backward: cat -> _BwRangeOut (start timer + record_function) -> block -> _BwRangeIn (finalize + stats)
             x_in = _BwRangeIn.apply(x, block)
             with record_function(f"shapelets/L{shapelets_size}/{block.__class__.__name__}"):
                 if (

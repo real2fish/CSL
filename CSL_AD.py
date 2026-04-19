@@ -17,8 +17,6 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import accuracy_score, rand_score, normalized_mutual_info_score
 
-import tsaug
-
 from torch.utils.tensorboard import SummaryWriter
 
 import argparse
@@ -63,13 +61,12 @@ parser.add_argument('-d', '--dist-measure', default='mix', type=str)
 #parser.add_argument('-r', '--rank', default=-1, type=int)
 parser.add_argument('-w', '--world-size', default=-1, type=int)
 parser.add_argument('-p', '--port', default=15535, type=int)
-parser.add_argument('-r', '--resize', default=0, type=int)
 parser.add_argument('-c', '--checkpoint', default=False, type=bool)
 parser.add_argument('--window-size', type=int)
 parser.add_argument('--num-shapelets', type=int, default=40)
 
 
-def evaluate_ad(dataset, augmentation=False, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=256, to_cuda=True, eval_per_x_epochs=10, dist_measure='mix', rank=-1, world_size=-1, resize=0, checkpoint=False, window_size=100, num_shapelets=40):
+def evaluate_ad(dataset, augmentation=False, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=256, to_cuda=True, eval_per_x_epochs=10, dist_measure='mix', rank=-1, world_size=-1, checkpoint=False, window_size=100, num_shapelets=40):
     is_ddp = False
     if rank != -1 and world_size != -1:
         is_ddp = True
@@ -252,7 +249,6 @@ def main(rank, world_size):
                             dist_measure=args.dist_measure,
                             rank=rank,
                             world_size=world_size,
-                            resize=args.resize,
                             checkpoint=args.checkpoint,
                             window_size=args.window_size,
                             num_shapelets=args.num_shapelets)

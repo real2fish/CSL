@@ -18,7 +18,6 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import accuracy_score, rand_score, normalized_mutual_info_score
 from sklearn.model_selection import cross_val_score
-import tsaug
 import logging
 import argparse
 
@@ -45,31 +44,24 @@ parser.add_argument('-d', '--dist-measure', default='mix', type=str)
 # parser.add_argument('-r', '--rank', default=-1, type=int)
 parser.add_argument('-w', '--world-size', default=-1, type=int)
 parser.add_argument('-p', '--port', default=15535, type=int)
-parser.add_argument('-r', '--resize', default=0, type=int)
 parser.add_argument('-c', '--checkpoint', default=True, type=bool)
 parser.add_argument('--budget', default=None, type=float,
-                    help='显存预算（GB）。--checkpoint 为 True 且指定本参数时，在 epoch 1 启用显存/检查点调度；未指定则全程所有模块均使用 checkpoint')
-parser.add_argument('-dc', '--dynamic_checkpoint', default=False, type=bool)
+                    help='Memory budget in GB. When --checkpoint is True and this is provided, enable the memory/checkpoint scheduler at epoch 1; if not provided, every module uses checkpoint throughout training')
 parser.add_argument('--task', default='classification', type=str)
-parser.add_argument('-lim', default=1.0, type=float)
 parser.add_argument('-de', default="default", type=str)
 parser.add_argument('-logdir',default="default_logs",type=str)
-parser.add_argument('-len', '--length', default=0, type=int,
-                    help='length of time series')
-parser.add_argument('-dim', '--dimension', default=0, type=int,
-                    help='target number of channels (dimension); set >0 to override original n_channels')
 def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=8, to_cuda=True, eval_per_x_epochs=10,
-                 dist_measure='mix', rank=-1, world_size=-1, resize=0, checkpoint=False, task='classification',
-                 dynamic_checkpoint=False,args = None):
+                 dist_measure='mix', rank=-1, world_size=-1, checkpoint=False, task='classification',
+                 args = None):
 
-    # 确保日志目录存在
+    # Make sure the log directory exists
     log_dir = args.logdir
     os.makedirs(log_dir, exist_ok=True)
 
-    # 构造日志文件路径
+    # Build the log file path
     log_file = os.path.join(log_dir, f"{args.dataset}{args.de}.log")
 
-    # 全局 logger 配置
+    # Global logger configuration
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -79,7 +71,7 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
         ]
     )
 
-    # 全局logger实例
+    # Module-level logger instance
     logger = logging.getLogger(__name__)
 
     is_ddp = False
@@ -106,63 +98,9 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
     X_train = z_normalize(X_train)
     X_test = z_normalize(X_test)
 
-    # # # ========= 在此处插入：时间长度与通道数翻倍 =========
-    # # # 时间长度翻倍（时间轴 axis=2 拼接自身）
-    # X_train = np.concatenate([X_train, X_train], axis=2)
-    # X_test  = np.concatenate([X_test,  X_test],  axis=2)
-
-    # # 通道数翻倍（通道轴 axis=1 复制自身）
-    # X_train = np.concatenate([X_train, X_train], axis=1)
-    # X_test  = np.concatenate([X_test,  X_test],  axis=1)
-    # # # ==============================================
-
-    if resize > 0:
-        X_train = tsaug.Resize(size=resize, seed=seed).augment(X_train.swapaxes(-1, -2)).swapaxes(-1, -2)
-        X_test = tsaug.Resize(size=resize, seed=seed).augment(X_test.swapaxes(-1, -2)).swapaxes(-1, -2)
-
-
     n_ts, n_channels, len_ts = X_train.shape
     loss_func = nn.CrossEntropyLoss()
     num_classes = len(set(y_train))
-     # —— 放在原有 `if resize > 0:` 分支之后（或之前均可，只要独立）——
-    if args.resize <= 0 and args.length > 0:  #未启用 resize
-        original_len_ts = len_ts  # 记录原始长度（可选，用于日志）
-        new_len = args.length
-        new_len = max(3, new_len)  # 防止过小
-        if new_len != len_ts:
-            logger.info(f"[Scaling] length {len_ts} → {new_len}")
-            # 👇 关键：同样用 tsaug.Resize，但 size = new_len
-            X_train = tsaug.Resize(size=new_len, seed=seed).augment(
-                X_train.swapaxes(-1, -2)
-            ).swapaxes(-1, -2)
-            X_test = tsaug.Resize(size=new_len, seed=seed).augment(
-                X_test.swapaxes(-1, -2)
-            ).swapaxes(-1, -2)
-            # 更新 len_ts（⚠️ 必须！影响后续 shapelet 长度范围）
-            _, _, len_ts = X_train.shape
-
-    # —— 维度（通道数）调整 ——
-    if args.dimension > 0 and args.dimension != n_channels:
-        target_dim = args.dimension
-        logger.info(f"[Dimension] channels {n_channels} → {target_dim}")
-
-        if target_dim < n_channels:
-            # 裁剪：取前 target_dim 个通道
-            X_train = X_train[:, :target_dim, :]
-            X_test = X_test[:, :target_dim, :]
-        else:
-            # 扩展：重复最后一通道 或 随机采样/零填充（这里用重复最后一通道）
-            # 方式1：重复最后一通道（简单确定性）
-            repeats = target_dim - n_channels
-            extra_channels = np.tile(X_train[:, [-1], :], (1, repeats, 1))
-            X_train = np.concatenate([X_train, extra_channels], axis=1)
-
-            extra_channels_test = np.tile(X_test[:, [-1], :], (1, repeats, 1))
-            X_test = np.concatenate([X_test, extra_channels_test], axis=1)
-
-        # 更新 n_channels
-        n_channels = X_train.shape[1]
-        logger.info(f"New shape: X_train {X_train.shape}, X_test {X_test.shape}")
     # K = MV = 40, R = 8
     # D_repr = RK
     shapelets_size_and_len = {int(i): 40 for i in
@@ -184,7 +122,6 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
                                              alpha=alpha,
                                              is_ddp=is_ddp,
                                              checkpoint=checkpoint,
-                                             dynamic_checkpoint=dynamic_checkpoint,
                                              seed=seed,
                                              args = args)
 
@@ -201,7 +138,7 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
     total_progress = tqdm(range(epochs))
     count_time = []
     for epoch in total_progress:
-            # 👇 每轮开始前重置峰值统计
+            # Reset peak-memory stats at the start of every epoch
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize()
         start_time = time.time()
@@ -214,14 +151,14 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
             count_time.append(epoch_duration)
         if epoch == 2:
 
-            logger.info("\n====================== [第1个 Epoch 收集统计数据] ======================")
+            logger.info("\n====================== [Epoch 1 collected statistics] ======================")
 
             for dist_type, records in logs.block_forward_stats_by_type.items():
                 logger.info(f"\n🔍 {dist_type.upper()} modules:")
                 for length in sorted(records.keys()):
-                    stat = records[length]              # 某个长度的stat
-                    calls = stat["forward_calls"]     # 前向传播次数计数器
-                    total_time = stat["forward_total_time"]  # 前向总时间
+                    stat = records[length]              # stats for this length
+                    calls = stat["forward_calls"]     # forward call counter
+                    total_time = stat["forward_total_time"]  # total forward time
                     avg_time = total_time / (calls - 1) if calls > 1 else 0.0
                     peak_mb = stat["peak_mem"] / 1024 ** 2 if stat.get("peak_mem") else 0
                     final_mb = stat["final_mem"] / 1024 ** 2 if stat.get("final_mem") else 0
@@ -239,9 +176,9 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
                     final_mb = stat["final_mem"] / 1024 ** 2 if stat.get("final_mem") else 0
                     logger.info(f"[Shapelet {length:>3}] backward_avg={avg_time:.6f}s over {calls} calls | "
                                 f"peak={peak_mb:.2f}MB | final={final_mb:.2f}MB")
-            logger.info("\n💾 模型第一次反向传播阶段的显存峰值（所有模块中的最大值）: "
+            logger.info("\nPeak memory during the model's first backward pass (max across modules): "
                   f"{logs.global_backward_peak_mem / 1024 ** 2:.2f} MB")
-            logger.info("\n💾 模型初始显存: "
+            logger.info("\nInitial model memory: "
                   f"{logs.global_pre_forward_mem / 1024 ** 2:.2f} MB")
             logger.info("=======================================================================\n")
         if epoch == 0 or (epoch + 1) % eval_per_x_epochs == 0:
@@ -295,7 +232,7 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
                                        f"loss_align: {np.mean([loss[2] for loss in losses])},"
                                        f"loss_sdl: {np.mean([loss[3] for loss in losses])}")
 
-    logger.info(f"!!!采用策略后的几个epoch 平均时间:{sum(count_time) / len(count_time)}")
+    logger.info(f"!!! average per-epoch time after applying the strategy: {sum(count_time) / len(count_time)}")
     logger.info(f"\n\n\n")
 
     return learning_shapelets, train_acc, test_acc
@@ -318,12 +255,10 @@ def main(rank, world_size):
                            dist_measure=args.dist_measure,
                            rank=rank,
                            world_size=world_size,
-                           resize=args.resize,
                            checkpoint=args.checkpoint,
-                           dynamic_checkpoint=args.dynamic_checkpoint,
                            task=args.task,
                            args = args)
-    # pickle 记录开启
+    # Enable pickle-based memory snapshot recording
     # timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
     # file_name = f"visual_mem_{timestamp}.pickle"
     # # save record:
@@ -336,14 +271,14 @@ def main(rank, world_size):
 
 
 def trace_handler(prof: torch.profiler.profile):
-   # 获取时间用于文件命名
+   # Use the current timestamp for the file name
    timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
    file_name = f"visual_mem_{timestamp}"
 
-   # 导出tracing格式的profiling
+   # Export profiling data as a tracing JSON
    prof.export_chrome_trace(f"{file_name}.json")
 
-   # 导出mem消耗可视化数据
+   # Export memory-consumption visualization data
    prof.export_memory_timeline(f"{file_name}.html")
 
 

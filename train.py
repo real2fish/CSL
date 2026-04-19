@@ -5,7 +5,6 @@ import logging
 import numpy as np
 import torch
 from torch.profiler import record_function
-from manager import Manager, cast_forward
 import tsaug
 from torch import nn
 
@@ -24,16 +23,16 @@ def print_cuda_memory(tag=""):
         f"[{tag}] Allocated: {allocated:.2f} MB | Reserved: {reserved:.2f} MB | Max Allocated: {max_allocated:.2f} MB | Max Reserved: {max_reserved:.2f} MB")
 
 def trace_handler(prof: torch.profiler.profile):
-   # 获取时间用于文件命名
+   # Use the current timestamp for the file name
    timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
    file_name = f"visual_mem_{timestamp}"
 
-   # 导出tracing格式的profiling
+   # Export profiling data as a tracing JSON
    prof.export_chrome_trace(f"{file_name}.json")
 
-   # 导出mem消耗可视化数据
+   # Export memory-consumption visualization data
    prof.export_memory_timeline(f"{file_name}.html")
-   print("已经调用tracehandler")
+   print("trace_handler has been called")
 
 
 class LearningShapeletsCL:
@@ -61,25 +60,14 @@ class LearningShapeletsCL:
 
     def __init__(self, shapelets_size_and_len, loss_func, in_channels=1, num_classes=2,
                  dist_measure='euclidean', verbose=0, to_cuda=True, l3=0.0, l4=0.0, T=0.1, alpha=0.0, is_ddp=False,
-                 checkpoint=False, seed=None, dynamic_checkpoint=False,args=None):
+                 checkpoint=False, seed=None, args=None):
         self.args = args
-        self.memory_buffer = 0
-        self.memory_threshold = 4
-        self.min_input_size = 21
-        self.max_input_size = 512
-        self.static_checkpoint = None
-        self.warmup_iters = 3
-        self.dynamic_checkpoint = dynamic_checkpoint
-        # memory_threshold = self.memory_threshold
-        # if memory_threshold > 3:
-        #     torch.cuda.set_per_process_memory_fraction(
-        #         memory_threshold * (1024 ** 3) / torch.cuda.get_device_properties(0).total_memory)
 
         self.is_ddp = is_ddp
         self.checkpoint = checkpoint
         self.seed = seed
 
-        # 重置参数显存统计，确保后续构建的模块会重新登记参数显存
+        # Reset parameter-memory stats so newly constructed modules re-register their parameter memory
         logs.block_param_memory_by_type["euclidean"].clear()
         logs.block_param_memory_by_type["cosine"].clear()
         logs.block_param_memory_by_type["cross"].clear()
@@ -107,22 +95,12 @@ class LearningShapeletsCL:
         self.optimizer = None
         self.scheduler = None
 
-        self.current_epoch = None  # 用于 update_CL 中判断是否记录反向时间
+        self.current_epoch = None  # used in update_CL to decide whether to record backward time
 
         self.l3 = l3
         self.l4 = l4
         self.alpha = alpha
         self.use_regularizer = False
-
-        if self.dynamic_checkpoint:
-            warmup_iters = self.warmup_iters
-            self.dc_manager = Manager(warmup_iters=warmup_iters)
-            self.dc_manager.set_max_memory_GB(memory_threshold=self.memory_threshold - self.memory_buffer)
-            self.dc_manager.static_strategy = self.static_checkpoint
-            self.dc_manager.max_input = self.max_input_size
-            self.dc_manager.min_input = self.min_input_size
-            self.dc_manager.shapelets_size_and_len = self.shapelets_size_and_len
-            cast_forward(self.model, "0", self.dc_manager, self.shapelets_size_and_len)
 
         self.batch_size = 0
         self.column = 0
@@ -142,14 +120,14 @@ class LearningShapeletsCL:
         # self.r = 64
 
         # self.num_clusters = [0.01, 0.02, 0.04]
-        # 确保日志目录存在
+        # Make sure the log directory exists
         log_dir = args.logdir
         os.makedirs(log_dir, exist_ok=True)
 
-        # 构造日志文件路径
+        # Build the log file path
         log_file = os.path.join(log_dir, f"{args.dataset}{args.de}.log")
 
-        # 全局 logger 配置
+        # Global logger configuration
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -178,17 +156,17 @@ class LearningShapeletsCL:
         if logger is None:
             return
 
-        logger.info("🧮 参数显存统计（单位：MB）")
+        logger.info("Parameter memory stats (unit: MB)")
 
         for dist_type in ("euclidean", "cosine", "cross"):
             if not logs.block_param_memory_by_type[dist_type]:
                 continue
             type_total = sum(logs.block_param_memory_by_type[dist_type].values())
-            logger.info(f"[参数显存] {dist_type} 总计: {type_total / 1024 ** 2:.4f} MB")
+            logger.info(f"[param memory] {dist_type} total: {type_total / 1024 ** 2:.4f} MB")
             for length, mem in sorted(logs.block_param_memory_by_type[dist_type].items()):
-                logger.info(f"[参数显存] {dist_type} 长度={length}: {mem / 1024 ** 2:.4f} MB")
+                logger.info(f"[param memory] {dist_type} length={length}: {mem / 1024 ** 2:.4f} MB")
 
-        logger.info(f"[参数显存] 模型参数总量: {total_params:,}，显存: {total_bytes / 1024 ** 2:.4f} MB")
+        logger.info(f"[param memory] total params: {total_params:,}, memory: {total_bytes / 1024 ** 2:.4f} MB")
 
     def set_optimizer(self, optimizer):
         self.optimizer = optimizer
@@ -322,8 +300,8 @@ class LearningShapeletsCL:
 
                 loss += self.l3 * (loss_cca + self.l4 * loss_sdl)
 
-            # 不在此包 record_function("CL.backward")：否则会盖住整段 loss.backward()，
-            # 且与各 shapelet 子模块的 shapelets_bw 嵌套/并列显示混在一起；细粒度请看 blocks 里 shapelets_bw。
+            # Do NOT wrap with record_function("CL.backward") here: it would shadow the entire loss.backward()
+            # and clutter the per-shapelet `shapelets_bw` ranges. For fine-grained backward, see `shapelets_bw` in blocks.
             self.optimizer.zero_grad()
             loss.backward()
 
@@ -390,11 +368,6 @@ class LearningShapeletsCL:
         # set model in train mode
 
         self.model.train()
-        seq_length = X.shape[-1]
-        # if self.dynamic_checkpoint:
-        #     self.dc_manager.set_input_size(seq_length)
-        # print(self.dc_manager.checkpoint_module)
-        # print(self.dc_manager.non_checkpoint)
 
         losses_ce = []
         losses_dist = []
@@ -409,7 +382,7 @@ class LearningShapeletsCL:
             logs.euclidean_checkpoint_shapelet_lengths = shapelet_lengths.copy()
             logs.cosine_checkpoint_shapelet_lengths = shapelet_lengths.copy()
             logs.cross_checkpoint_shapelet_lengths = shapelet_lengths.copy()
-            self.logger.info("📌 第一个 epoch：默认所有模块使用 checkpoint")
+            self.logger.info("First epoch: by default all modules use checkpoint")
 
         for epoch in progress_bar:
             logs.epoch_max_allocated = 0
@@ -432,9 +405,9 @@ class LearningShapeletsCL:
                 C_accu_k = [torch.tensor([0], dtype=torch.float).cuda() for _ in
                             range(len(self.shapelets_size_and_len))]
 
-            # 监控结果文件存放位置
+            # Output directory for monitoring artifacts
             hander_path = './log/' + self.args.dataset + self.args.de
-            # 性能监控（若 trace 缺 shapelets_bw：设 CSL_DETAIL_BW_IN_PROFILER=1 禁用 checkpoint 段）
+            # Performance profiling (if shapelets_bw is missing from the trace, set CSL_DETAIL_BW_IN_PROFILER=1 to disable the checkpoint section)
             with torch.profiler.profile(
                     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
                     schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
@@ -474,12 +447,13 @@ class LearningShapeletsCL:
 
                 if self.current_epoch == 1:
                     self.estimate_backward_time_bias()
-                    # checkpoint 且显式指定 budget 时启用显存调度；否则保持 epoch0「全部模块 checkpoint」
+                    # Enable the memory scheduler only when checkpoint is on AND --budget is provided;
+                    # otherwise keep the epoch-0 default of "all modules checkpointed".
                     if self.checkpoint and getattr(self.args, 'budget', None) is not None:
                         start = time.perf_counter()
                         self.plan_checkpoint_schedule()
                         elapsed = time.perf_counter() - start
-                        self.logger.info(f"🕒 显存计划规划时间: {elapsed:.6f} 秒")
+                        self.logger.info(f"Memory plan scheduling time: {elapsed:.6f} s")
 
 
 
@@ -494,10 +468,6 @@ class LearningShapeletsCL:
                 if self.scheduler != None:
                     self.scheduler.step()
 
-                if self.dynamic_checkpoint:
-                    self.dc_manager.after_update()
-
-
             return losses_ce if not self.use_regularizer else (losses_ce, losses_dist, losses_sim) if self.l2 > 0.0 else (
                 losses_ce, losses_dist)
 
@@ -507,22 +477,28 @@ class LearningShapeletsCL:
     def plan_checkpoint_schedule(self):
         from logs import x, global_backward_b, global_pre_forward_mem, global_backward_peak_mem, cdist_euclidean_mem
         shapelet_lengths = list(self.shapelets_size_and_len.keys())
-        n_lengths = len(shapelet_lengths)  # 通常为 8
-        # 与原代码一致地从 shapelets_size_and_len 推断每长度的 shapelet 数（mix 模式下一切按 1/3 划分）
+        n_lengths = len(shapelet_lengths)  # typically 8
+        # As in the original code, derive the per-length shapelet count from shapelets_size_and_len
+        # (in 'mix' mode it is split into thirds).
         n_per_length = next(iter(self.shapelets_size_and_len.values()))
-        s_e = n_per_length // 3  # euclidean 子块每长度的 shapelet 数（mix 模式下=13）
-        s_c = n_per_length // 3  # cosine 子块每长度的 shapelet 数（mix 模式下=13）
-        s_x = n_per_length - 2 * (n_per_length // 3)  # cross 子块每长度的 shapelet 数（mix 模式下=14）
-        # 旧代码中固定 s=13，沿用兼容（cosine 公式中使用）
+        s_e = n_per_length // 3  # shapelets per length for the euclidean sub-block (mix mode = 13)
+        s_c = n_per_length // 3  # shapelets per length for the cosine sub-block   (mix mode = 13)
+        s_x = n_per_length - 2 * (n_per_length // 3)  # shapelets per length for the cross sub-block (mix mode = 14)
+        # The original code used a fixed s=13; kept here for compatibility (used in the cosine formula).
         s = s_c
 
-        # 记录运行时间和前向峰值显存
+        # Collect runtime, forward peak memory, and backward peak memory.
+        # Backward values are measured by _BwRangeOut/_BwRangeIn together with record_function in blocks.py
+        # and written into logs.block_backward_stats_by_type.
         T_euclidean = {}
         T_cosine = {}
         T_cross = {}
         peak_memory_e = {}
         peak_memory_c = {}
         peak_memory_x = {}
+        bw_peak_memory_e = {}
+        bw_peak_memory_c = {}
+        bw_peak_memory_x = {}
 
         for length in shapelet_lengths:
             stat = logs.block_forward_stats_by_type["euclidean"].get(length)
@@ -538,14 +514,24 @@ class LearningShapeletsCL:
             stat = logs.block_forward_stats_by_type["cross"].get(length)
             if stat:
                 T_cross[length] = stat["forward_total_time"] / (stat["forward_calls"] - 1)
-                # cross 现在也记录 peak_mem
+                # cross now also records peak_mem
                 if stat.get("peak_mem") is not None:
                     peak_memory_x[length] = stat["peak_mem"]
 
+            bw_stat = logs.block_backward_stats_by_type["euclidean"].get(length)
+            if bw_stat and bw_stat.get("peak_mem") is not None:
+                bw_peak_memory_e[length] = bw_stat["peak_mem"]
+            bw_stat = logs.block_backward_stats_by_type["cosine"].get(length)
+            if bw_stat and bw_stat.get("peak_mem") is not None:
+                bw_peak_memory_c[length] = bw_stat["peak_mem"]
+            bw_stat = logs.block_backward_stats_by_type["cross"].get(length)
+            if bw_stat and bw_stat.get("peak_mem") is not None:
+                bw_peak_memory_x[length] = bw_stat["peak_mem"]
+
         forward_peek_candidates = list(peak_memory_e.values()) + list(peak_memory_c.values()) + list(peak_memory_x.values())
         forward_peek = max(forward_peek_candidates) if forward_peek_candidates else 1
-        # 显存公式
-        # get_M_e(length): 计算长度为 `length` 的欧氏模块前向后需保留的最终内存。
+        # Memory formulas
+        # get_M_e(length): final memory the euclidean module of size `length` must retain after forward.
         def get_M_e(length):
             return 4 * self.batch_size * self.column * (self.length- length + 1) * length + cdist_euclidean_mem
 
@@ -553,14 +539,14 @@ class LearningShapeletsCL:
             return 4 * (2* s * self.column+ self.column*s*length+self.batch_size*self.column * (self.length - length + 1) *length + self.batch_size* s+ self.batch_size * (self.length - length + 1) * s)
 
         def get_M_x(length):
-            # cross block 主要保留 Conv1d 输出（B,s_x,L-K+1）+ 卷积权重（C,s_x,K）+ 最终输出（B,s_x）
+            # The cross block mainly retains the Conv1d output (B,s_x,L-K+1) + conv weights (C,s_x,K) + final output (B,s_x)
             return 4 * (
                 self.batch_size * s_x * (self.length - length + 1)
                 + self.column * s_x * length
                 + self.batch_size * s_x
             )
 
-        # get_S_e(length): 获取长度为 `length` 的欧氏模块前向峰值内存 (统计数据)。
+        # get_S_e(length): forward peak memory (from stats) of the euclidean module of size `length`.
         def get_S_e(length):
             return peak_memory_e[length]
 
@@ -568,12 +554,12 @@ class LearningShapeletsCL:
             return peak_memory_c[length]
 
         def get_S_x(length):
-            # cross peak 可能 None（极少触发场景），用 retain 估计兜底
+            # cross peak may be None (rare scenario); fall back to the retain estimate
             return peak_memory_x.get(length, get_M_x(length))
 
-        # is_E(i): 第 i 个 stage 是否为欧氏模块。
-        # 索引规划：1..8 euc fw, 9..16 cos fw, 17..24 cross fw,
-        #          25..32 euc bw, 33..40 cos bw, 41..48 cross bw
+        # is_E(i): whether the i-th stage is a euclidean module.
+        # Index layout: 1..8 euc fw, 9..16 cos fw, 17..24 cross fw,
+        #               25..32 euc bw, 33..40 cos bw, 41..48 cross bw
         def is_E(i):
             return 1 <= i <= 8 or 25 <= i <= 32
 
@@ -583,11 +569,11 @@ class LearningShapeletsCL:
         def is_X(i):
             return 17 <= i <= 24 or 41 <= i <= 48
 
-        # get_length(i): 根据索引 `i` (1..48) 获取对应的 Shapelet 长度
+        # get_length(i): map an index `i` (1..48) to the corresponding shapelet length
         def get_length(i):
             return shapelet_lengths[(i - 1) % n_lengths]
 
-        # get_peak_mem(i): 获取第 `i` 个MODULE FORWARD的峰值内存
+        # get_peak_mem(i): peak memory of the i-th module's FORWARD
         def get_peak_mem(i):
             if is_E(i):
                 return get_S_e(get_length(i))
@@ -604,24 +590,35 @@ class LearningShapeletsCL:
             else:
                 return get_M_x(get_length(i))
 
-        # get_final_mem(i): 计算第 `i` 个前向阶段结束后保留的内存 (由策略 x[i] 决定)
+        # get_final_mem(i): memory retained after the i-th forward stage (determined by policy x[i])
         def get_final_mem(i):
             return x[i] * get_M_by_idx(i)
 
-        # get_release(i): 计算第 `i` 个反向阶段释放的内存 (由策略 x[i] 决定)。
+        # get_release(i): memory released by the i-th backward stage (determined by policy x[i]).
         def get_release(i):
             if x[i] == 0:
                 return 0
             return get_M_by_idx(i)
 
-        # get_backward_peak(i): 估算第 `i` 个模块反向时的峰值内存。
+        # get_backward_peak(i): the i-th module's measured backward peak memory (the peak_delta written
+        # by `_accumulate_block_backward_stats` inside the record_function range). If missing, fall back to
+        # the estimate: (global backward / forward) ratio * forward peak.
         def get_backward_peak(i):
+            length = get_length(i)
+            if is_E(i):
+                measured = bw_peak_memory_e.get(length)
+            elif is_C(i):
+                measured = bw_peak_memory_c.get(length)
+            else:
+                measured = bw_peak_memory_x.get(length)
+            if measured is not None:
+                return measured
             ratio = (global_backward_peak_mem / forward_peek) if forward_peek else 1.0
             return ratio * get_peak_mem(i)
 
-        N = 3 * n_lengths  # 24 个决策模块（8 euc + 8 cos + 8 cross）
+        N = 3 * n_lengths  # 24 decision modules (8 euc + 8 cos + 8 cross)
 
-        # 计算前向和后向共 (2N+1) 个 stage 的显存峰值
+        # Compute the memory peaks across all (2N+1) forward + backward stages
         def compute_K():
             total_stages = 2 * N + 1
             K = [0] * (total_stages + 1)
@@ -632,21 +629,21 @@ class LearningShapeletsCL:
             total_final = sum(get_final_mem(i) for i in range(1, N + 1))
             cum_release = 0
             for t in range(N + 1, 2 * N + 1):
-                i = (2 * N + 1) - t  # 反向索引：t=N+1 时 i=N
-                # 反向阶段对应的模块 stage id：i 仍在 1..N 范围内
+                i = (2 * N + 1) - t  # backward index: when t=N+1, i=N
+                # Module stage id for the backward phase: i still lies in 1..N
                 K[t] = get_backward_peak(i) + total_final - cum_release
                 cum_release += get_release(i)
             return K
 
-        # 根据给定的检查点策略 (x 数组，由 z_bin 决定)，计算并返回在整个模拟的前向和反向传播过程中预测会出现的最高显存峰值 。
+        # Given a checkpoint policy (the x array, set by z_bin), compute and return the predicted highest
+        # memory peak across the whole simulated forward and backward.
         def compute_overall_peak():
             return max(compute_K()[1:])
 
         b = global_backward_b
-        mem_gb = self.args.budget if getattr(self.args, 'budget', None) is not None else self.args.lim
-        memory_limit = mem_gb * 1024 ** 3  # bytes
+        memory_limit = self.args.budget * 1024 ** 3  # bytes (this function is only invoked when --budget is provided)
 
-        # 目标函数 zbin 的值来自于遗传算法的遍历
+        # Objective function: zbin values come from the genetic-algorithm enumeration
         def objective(z_bin):
             for i in range(1, N + 1):
                 x[i] = z_bin[i - 1]
@@ -669,8 +666,9 @@ class LearningShapeletsCL:
                 else:
                     T_nockp_x += T_cross[length]
 
-            # 与原模型一致：checkpoint 的 block 在反向阶段需重算一次 forward，故乘 3；
-            # 不 checkpoint 的 block 反向阶段保留中间结果，乘 2。cross 现在也参与同样模型。
+            # Same model as the original: a checkpointed block needs to recompute forward during backward,
+            # so factor 3; a non-checkpointed block keeps activations and uses factor 2. cross now follows
+            # the same model.
             total_time = 48 * (3 * T_ckp + 2 * T_nockp + 3 * T_ckp_x + 2 * T_nockp_x) + b
             penalty = 1e10 * max(0, K_max - memory_limit)
             return total_time + penalty
@@ -707,20 +705,20 @@ class LearningShapeletsCL:
         for i in range(N):
             x[i + 1] = int(z_best[i])
 
-        #验证规划前后显存存储结果
+        # Verify retained memory before/after planning
         plan_mem = float(memory_limit)/float(1024**3)
-        # 根据 z_best 计算存储结果
+        # Compute the retained memory implied by z_best
         real_mem = 0.0
         for i in range(0, N):
             if z_best[i] == 1:
                 block_MEM = get_M_by_idx(i + 1)
                 real_mem += block_MEM
-                print(f"模块 {i+1}  save checkpoint，显存 {block_MEM/1024/1024} MB")
+                print(f"module {i+1}  save checkpoint, memory {block_MEM/1024/1024} MB")
 
-        self.logger.info(f"规划前的显存GB：{plan_mem}")
-        self.logger.info(f"规划后的显存GB：{float(real_mem)/float(1024**3)}")
+        self.logger.info(f"memory before planning (GB): {plan_mem}")
+        self.logger.info(f"memory after  planning (GB): {float(real_mem)/float(1024**3)}")
 
-        self.logger.info(f"✅ 最优策略：{z_best.tolist()}")
+        self.logger.info(f"Best strategy: {z_best.tolist()}")
 
         logs.euclidean_checkpoint_shapelet_lengths.clear()
         logs.euclidean_checkpoint_shapelet_lengths.extend(
@@ -737,42 +735,43 @@ class LearningShapeletsCL:
             [shapelet_lengths[i] for i in range(n_lengths) if z_best[i + 2 * n_lengths] == 0]
         )
 
-        self.logger.info(f"📌 checkpoint 的欧氏长度:, {logs.euclidean_checkpoint_shapelet_lengths}")
-        self.logger.info(f"📌 checkpoint 的余弦长度:, {logs.cosine_checkpoint_shapelet_lengths}")
-        self.logger.info(f"📌 checkpoint 的 cross 长度:, {logs.cross_checkpoint_shapelet_lengths}")
+        self.logger.info(f"Checkpointed euclidean lengths: {logs.euclidean_checkpoint_shapelet_lengths}")
+        self.logger.info(f"Checkpointed cosine    lengths: {logs.cosine_checkpoint_shapelet_lengths}")
+        self.logger.info(f"Checkpointed cross     lengths: {logs.cross_checkpoint_shapelet_lengths}")
 
-        self.logger.info(f"💾 最终显存峰值：%.2f MB % {(compute_overall_peak() / 1024 ** 2)}")
+        self.logger.info(f"Final memory peak: {compute_overall_peak() / 1024 ** 2:.2f} MB")
 
     def estimate_backward_time_bias(self):
         """
-        估算反向传播的基础时间开销 (bias)。
+        Estimate the constant time bias of the backward pass.
 
-        该函数在第一个训练 Epoch (epoch == 1) 结束后调用。
-        它利用在该 Epoch 中收集到的各模块前向传播时间统计数据，
-        以及测量到的总反向传播时间，来拟合一个时间模型：
-        总反向时间 ≈ 2 * (A + B) + b
+        Called after the first training epoch (epoch == 1). It uses per-module forward time stats
+        collected during that epoch together with the measured total backward time to fit a
+        simple linear model:
+            total_backward_time approx 2 * (A + B) + b
 
-        其中：
-        - A: 所有欧氏距离和余弦距离模块估算的反向计算时间之和。
-        - B: 所有交叉距离模块估算的反向计算时间之和。
-        - b: 与前向计算时间无关的基础反向时间开销 (bias)。
+        Where:
+        - A: sum of estimated backward times for all euclidean and cosine modules.
+        - B: sum of estimated backward times for all cross modules.
+        - b: a constant bias term independent of forward time.
 
-        这个估算出的 `b` (存储为 `logs.global_backward_b`) 会被 `plan_checkpoint_schedule`
-        中的目标函数用于更精确地预测不同检查点策略下的总运行时间。
+        The estimated `b` (stored as `logs.global_backward_b`) is used by the objective
+        in `plan_checkpoint_schedule` to predict total runtime for different checkpoint
+        policies more accurately.
 
-        输入:
-            无显式输入参数。该函数依赖于以下全局或类级别的状态：
-            - `logs.block_forward_stats_by_type`: 包含各模块前向时间统计的字典。
-            - `logs.global_backward_total_time`: 第一个 Epoch 测量到的总反向时间。
-            - `self.current_epoch`: 用于判断是否在第一个 Epoch 后调用此函数。
+        Inputs:
+            No explicit arguments. The function relies on the following global / class state:
+            - `logs.block_forward_stats_by_type`: per-module forward time stats.
+            - `logs.global_backward_total_time`: measured total backward time of the first epoch.
+            - `self.current_epoch`: used to gate when to call this function (after epoch 1).
 
-        输出:
-            无显式返回值。该函数将计算出的基础时间 `b` 存储到全局变量 `logs.global_backward_b` 中。
-            同时会打印出拟合过程和结果信息。
+        Outputs:
+            No explicit return value. The fitted bias `b` is stored in `logs.global_backward_b`,
+            and the fitting process and results are logged.
         """
 
-        A = 0.0  # euclidean + cosine 模块的等效反向时间（默认 epoch 0/1 内 checkpoint 全开，系数=3）
-        B = 0.0  # cross 模块的等效反向时间（现在 cross 也参与 checkpoint，同样系数=3）
+        A = 0.0  # equivalent backward time for euclidean + cosine modules (default coeff = 3 since checkpoint is on in epoch 0/1)
+        B = 0.0  # equivalent backward time for cross modules (cross now also participates in checkpointing; coeff = 3)
 
         for dist_type in ["euclidean", "cosine"]:
             for length, stats in logs.block_forward_stats_by_type[dist_type].items():
@@ -790,11 +789,11 @@ class LearningShapeletsCL:
             B += 3 * t / (n - 1) * n
 
         b = logs.global_backward_total_time - (A + B)
-        logs.global_backward_b = b  # ✅ 存起来
+        logs.global_backward_b = b  # store globally
 
-        self.logger.info("\n[🔁 拟合反向传播时间模型]")
-        self.logger.info(f"总反向传播时间: {logs.global_backward_total_time:.6f}s")
-        self.logger.info(f"拟合模型: backward_total ≈ 3 × (A_euc+cos) + 3 × (B_cross) + b")
+        self.logger.info("\n[Fit backward-time model]")
+        self.logger.info(f"Total backward time: {logs.global_backward_total_time:.6f}s")
+        self.logger.info("Fitted model: backward_total ~= 3 * (A_euc+cos) + 3 * (B_cross) + b")
         self.logger.info(f"A = {A:.6f}, B = {B:.6f}, b = {b:.6f}s")
 
     def transform(self, X, *, batch_size=512, result_type='tensor', normalize=False):

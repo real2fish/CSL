@@ -60,8 +60,8 @@ def add_memory_peak_constraints(
     backward_peaks = list(backward_peak_values)
     forward_stage_count = len(forward_peaks)
     backward_stage_count = len(backward_peaks)
-    # 期望约束总数 = 2N + 1（N 个前向 + 1 个前向尾部 total_final + N 个反向）
-    # forward_peaks 既可传 N（系统会末尾补 0）也可传 N+1
+    # Expected total number of constraints = 2N + 1 (N forward + 1 forward-tail total_final + N backward)
+    # forward_peaks may be either N (a 0 will be appended) or N+1
     if forward_stage_count == num_modules and backward_stage_count == num_modules:
         forward_peaks.append(0.0)
         forward_stage_count += 1
@@ -87,7 +87,7 @@ def add_memory_peak_constraints(
     def get_release(module_idx: int) -> LinExpr:
         return retained_activation_values[module_idx - 1] * (1 - x_vars[module_idx - 1])
 
-    # 前向阶段：t = 1..2N，模块下标 m 在 1..N 范围内重复一次（与 q+k 双 pass 一致）
+    # Forward phase: t = 1..2N, the module index m repeats once within 1..N (matching the q+k two-pass)
     cum_final_expr: LinExpr = LinExpr()
     for t in range(1, 2 * num_modules + 1):
         if t > num_modules:
@@ -104,7 +104,7 @@ def add_memory_peak_constraints(
         cum_final_expr += get_final_mem(m)
 
 
-    # 前向结束时峰值（factor 2 表示 q-pass + k-pass 的累计 retain）
+    # Peak at the end of forward (factor 2 accounts for the accumulated retain across q-pass + k-pass)
     total_final_expr = 2 * sum(get_final_mem(i) * (x_vars[i - 1]) for i in range(1, num_modules + 1)) + global_pre_forward_mem
     constraints.append(
         model.addConstr(total_final_expr <= memory_budget, name=f"{constraint_prefix}_stage_{stage_id}")
@@ -112,7 +112,7 @@ def add_memory_peak_constraints(
     stage_id += 1
 
 
-    # 反向阶段：t = 1..2N，模块下标 m 在 1..N 范围内重复一次
+    # Backward phase: t = 1..2N, the module index m repeats once within 1..N
     cum_release_expr: LinExpr = LinExpr()
 
     for t in range(1, 2 * num_modules + 1):
@@ -120,10 +120,10 @@ def add_memory_peak_constraints(
             m = t - num_modules
         else:
             m = t
-        # 反向传播
+        # Backward pass
         k_expr = get_backward_peak(m) + total_final_expr - cum_release_expr
 
-        # 重计算
+        # Recomputation
         k_expr2 = get_backward_peak(m) + get_peak_mem(m) * (1 - x_vars[m - 1])
 
         constraints.append(
@@ -209,7 +209,7 @@ def solve_memory_budget(
             # 2. Cosine (x_vars[i + n_lengths])
             T_ckp += (1 - x_vars[i + n_lengths]) * T_cosine[length]
             T_nockp += x_vars[i + n_lengths] * T_cosine[length]
-            # 3. Cross (x_vars[i + 2 * n_lengths])，与 cosine 平权地参与决策
+            # 3. Cross (x_vars[i + 2 * n_lengths]), participates in the decision on equal footing with cosine
             if length in T_cross:
                 T_ckp += (1 - x_vars[i + 2 * n_lengths]) * T_cross[length]
                 T_nockp += x_vars[i + 2 * n_lengths] * T_cross[length]
