@@ -34,7 +34,7 @@ To evaluate the UEA datasets using the commands:
 
 Classification:
 
-`python UEA.py [dataset_name]`
+`python UEA.py Cricket`
 
 Clustering:
 
