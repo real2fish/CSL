@@ -7,6 +7,7 @@
 * Sklearn
 * tslearn
 * tsaug
+* Gurobi（linux）
 
 ## Datasets
 We use the 30 datasets from UEA archive and four anomaly detection datasets in this study.
@@ -34,14 +35,18 @@ To evaluate the UEA datasets using the commands:
 
 Classification:
 
-`python UEA.py [dataset_name]`
+`python UEA_MAST.py Cricket`
+
+Classification with memory budget (requires Gurobi):
+
+`python UEA_MAST.py Cricket --checkpoint True --budget 2 -de=2GB -b=8`
 
 Clustering:
 
-`python UEA.py [dataset_name] --task clustering`
+`python UEA_MAST.py [dataset_name] --task clustering`
 
 For anomaly detection, use the following command:
 
-`python CSL_AD.py [dataset_name] --window-size [window-size]`
+`python CSL_AD_MAST.py [dataset_name] --window-size [window-size]`
 
 Use `-h` or `--help` option for the detailed messages of the other options, such as the hyper-parameters and the random seed.
