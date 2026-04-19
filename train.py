@@ -472,13 +472,14 @@ class LearningShapeletsCL:
                         else:
                             pass
 
-                if self.current_epoch== 1:
+                if self.current_epoch == 1:
                     self.estimate_backward_time_bias()
-                    # 估算时间
-                    start = time.perf_counter()
-                    self.plan_checkpoint_schedule()
-                    elapsed = time.perf_counter() - start
-                    self.logger.info(f"🕒 显存计划规划时间: {elapsed:.6f} 秒")
+                    # checkpoint 且显式指定 budget 时启用显存调度；否则保持 epoch0「全部模块 checkpoint」
+                    if self.checkpoint and getattr(self.args, 'budget', None) is not None:
+                        start = time.perf_counter()
+                        self.plan_checkpoint_schedule()
+                        elapsed = time.perf_counter() - start
+                        self.logger.info(f"🕒 显存计划规划时间: {elapsed:.6f} 秒")
 
 
 
@@ -642,7 +643,8 @@ class LearningShapeletsCL:
             return max(compute_K()[1:])
 
         b = global_backward_b
-        memory_limit = self.args.lim * 1024 ** 3 #byte
+        mem_gb = self.args.budget if getattr(self.args, 'budget', None) is not None else self.args.lim
+        memory_limit = mem_gb * 1024 ** 3  # bytes
 
         # 目标函数 zbin 的值来自于遗传算法的遍历
         def objective(z_bin):

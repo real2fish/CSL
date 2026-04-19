@@ -47,6 +47,8 @@ parser.add_argument('-w', '--world-size', default=-1, type=int)
 parser.add_argument('-p', '--port', default=15535, type=int)
 parser.add_argument('-r', '--resize', default=0, type=int)
 parser.add_argument('-c', '--checkpoint', default=True, type=bool)
+parser.add_argument('--budget', default=None, type=float,
+                    help='显存预算（GB）。--checkpoint 为 True 且指定本参数时，在 epoch 1 启用显存/检查点调度；未指定则全程所有模块均使用 checkpoint')
 parser.add_argument('-dc', '--dynamic_checkpoint', default=False, type=bool)
 parser.add_argument('--task', default='classification', type=str)
 parser.add_argument('-lim', default=1.0, type=float)
