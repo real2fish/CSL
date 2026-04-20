@@ -125,7 +125,7 @@ class LearningShapeletsCL:
         os.makedirs(log_dir, exist_ok=True)
 
         # Build the log file path
-        log_file = os.path.join(log_dir, f"{args.dataset}{args.de}.log")
+        log_file = os.path.join(log_dir, f"{args.dataset}.log")
 
         # Global logger configuration
         logging.basicConfig(
@@ -219,7 +219,7 @@ class LearningShapeletsCL:
 
             with record_function("CL.loss_compute"):
                 torch.cuda.synchronize()
-                start = time.time()
+                start = time.perf_counter()
                 q = nn.functional.normalize(q, dim=1)
                 k = nn.functional.normalize(k, dim=1)
 
@@ -390,7 +390,7 @@ class LearningShapeletsCL:
                             range(len(self.shapelets_size_and_len))]
 
             # Output directory for monitoring artifacts
-            hander_path = './log/' + self.args.dataset + self.args.de
+            hander_path = './log/' + self.args.dataset
             # Performance profiling (if shapelets_bw is missing from the trace, set CSL_DETAIL_BW_IN_PROFILER=1 to disable the checkpoint section)
             with torch.profiler.profile(
                     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
@@ -418,13 +418,13 @@ class LearningShapeletsCL:
 
                         if not self.use_regularizer:
                             torch.cuda.synchronize()
-                            start_time = time.time()
+                            start_time = time.perf_counter()
                             with record_function("train.update_CL"):
                                 current_loss_ce, C_accu_q, c_normalising_factor_q, C_accu_k, c_normalising_factor_k = self.update_CL(
                                     x, C_accu_q, c_normalising_factor_q, C_accu_k, c_normalising_factor_k)
                             torch.cuda.synchronize()
                             if self.current_epoch == 1:
-                                logs.global_backward_total_time += time.time() - start_time
+                                logs.global_backward_total_time += time.perf_counter() - start_time
                             losses_ce.append(current_loss_ce)
                         else:
                             pass

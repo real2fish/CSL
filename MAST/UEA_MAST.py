@@ -48,7 +48,6 @@ parser.add_argument('-c', '--checkpoint', default=True, type=bool)
 parser.add_argument('--budget', default=None, type=float,
                     help='Memory budget in GB. When --checkpoint is True and this is provided, enable the memory/checkpoint scheduler at epoch 1; if not provided, every module uses checkpoint throughout training')
 parser.add_argument('--task', default='classification', type=str)
-parser.add_argument('-de', default="default", type=str)
 parser.add_argument('-logdir',default="default_logs",type=str)
 def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=8, to_cuda=True, eval_per_x_epochs=10,
                  dist_measure='mix', rank=-1, world_size=-1, checkpoint=False, task='classification',
@@ -59,7 +58,7 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
     os.makedirs(log_dir, exist_ok=True)
 
     # Build the log file path
-    log_file = os.path.join(log_dir, f"{args.dataset}{args.de}.log")
+    log_file = os.path.join(log_dir, f"{args.dataset}.log")
 
     # Global logger configuration
     logging.basicConfig(
@@ -143,10 +142,10 @@ def evaluate_UEA(dataset, seed=42, T=0.1, l=1e-2, ls=1.0, alpha=0.5, batch_size=
             # Reset peak-memory stats at the start of every epoch
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize()
-        start_time = time.time()
+        start_time = time.perf_counter()
         losses = learning_shapelets.train(X_train, epochs=1, batch_size=batch_size, epoch_idx=epoch)
         torch.cuda.synchronize()
-        end_time = time.time()
+        end_time = time.perf_counter()
         epoch_duration = end_time - start_time
         if epoch >= 2:
             count_time.append(epoch_duration)

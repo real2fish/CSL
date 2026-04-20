@@ -32,7 +32,7 @@ def _accumulate_block_backward_stats(module: nn.Module, dist_type: str) -> None:
     if getattr(module, "_bw_t0", None) is None:
         return
     torch.cuda.synchronize()
-    duration = time.time() - module._bw_t0
+    duration = time.perf_counter() - module._bw_t0
     length = module.shapelets_size
     peak_delta = torch.cuda.max_memory_allocated() - module._bw_pre_mem
     logs.global_backward_peak_mem = max(
@@ -115,7 +115,7 @@ class _BwRangeOut(torch.autograd.Function):
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()
             module._bw_pre_mem = torch.cuda.memory_allocated()
-        module._bw_t0 = time.time()
+        module._bw_t0 = time.perf_counter()
         rf_ctx = record_function(_backward_profiler_label(module))
         rf_ctx.__enter__()
         module._profiler_bw_rf_ctx = rf_ctx
@@ -166,7 +166,7 @@ class MinEuclideanDistBlock(nn.Module):
         if logs.global_pre_forward_mem is None:
             logs.global_pre_forward_mem = torch.cuda.memory_allocated()
 
-        start_time = time.time()
+        start_time = time.perf_counter()
         logs.epoch_max_allocated = max(logs.epoch_max_allocated, torch.cuda.max_memory_allocated())
         torch.cuda.reset_peak_memory_stats()
         pre_mem = torch.cuda.memory_allocated()
@@ -192,7 +192,7 @@ class MinEuclideanDistBlock(nn.Module):
         x, _ = torch.min(x, 3)
 
         torch.cuda.synchronize()
-        end_time = time.time()
+        end_time = time.perf_counter()
 
         duration = end_time - start_time
         length = self.shapelets_size
@@ -239,7 +239,7 @@ class MaxCosineSimilarityBlock(nn.Module):
         _register_block_backward_profiling(self, "cosine")
 
     def forward(self, x, masking=False):
-        start_time = time.time()
+        start_time = time.perf_counter()
         logs.epoch_max_allocated = max(logs.epoch_max_allocated, torch.cuda.max_memory_allocated())
         torch.cuda.reset_peak_memory_stats()
         pre_mem = torch.cuda.memory_allocated()
@@ -288,7 +288,7 @@ class MaxCosineSimilarityBlock(nn.Module):
         x, _ = torch.max(x, 3)
 
         torch.cuda.synchronize()
-        end_time = time.time()
+        end_time = time.perf_counter()
 
         duration = end_time - start_time
         length = self.shapelets_size
@@ -335,7 +335,7 @@ class MaxCrossCorrelationBlock(nn.Module):
         if torch.cuda.is_available() and logs.global_pre_forward_mem is None:
             logs.global_pre_forward_mem = torch.cuda.memory_allocated()
 
-        start_time = time.time()
+        start_time = time.perf_counter()
         if torch.cuda.is_available():
             logs.epoch_max_allocated = max(logs.epoch_max_allocated, torch.cuda.max_memory_allocated())
             torch.cuda.reset_peak_memory_stats()
@@ -350,7 +350,7 @@ class MaxCrossCorrelationBlock(nn.Module):
         x, _ = torch.max(x, 2, keepdim=True)
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-        end_time = time.time()
+        end_time = time.perf_counter()
 
         duration = end_time - start_time
         length = self.shapelets_size
@@ -595,7 +595,7 @@ class LearningShapeletsModelMixDistances(nn.Module):
 
     def forward(self, x, optimize='acc', masking=False):
 
-        # start_time = time.time()
+        # start_time = time.perf_counter()
 
         n_samples = x.shape[0]
         num_lengths = len(self.shapelets_size_and_len)
