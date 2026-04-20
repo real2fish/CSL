@@ -30,6 +30,8 @@ Similarly, to test SMD and ASD datasets, create a folder named `SMD&ASD` under '
 
 ## Usage
 
+### Commands for CSL
+
 To evaluate the UEA datasets using the commands:
 
 Classification:
@@ -45,3 +47,7 @@ For anomaly detection, use the following command:
 `python CSL_AD.py [dataset_name] --window-size [window-size]`
 
 Use `-h` or `--help` option for the detailed messages of the other options, such as the hyper-parameters and the random seed.
+
+### New: Efficient and memory-aware activation checkpointing is now supported using our MAST planner 
+
+* [MAST](https://github.com/real2fish/CSL/tree/main/MAST)
