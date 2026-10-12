@@ -1,4 +1,11 @@
-# Official Implementation of MAST, A Memory-Aware Activation Checkpointing Planner for Shapelet Transformer.
+<div align="center">
+
+# MAST
+## A Memory-Aware Activation Checkpointing Planner for Shapelet Transformer.
+
+</div>
+
+
 
 ## Requirements
 * Python3.x
