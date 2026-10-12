@@ -1,4 +1,15 @@
-# Official Implementation of the Contrastive Shapelet Learning (CSL) Approach for General-purpose Unsupervised (Self-supervised) Multivariate Time Series Representation Learning
+<div align="center">
+  
+# CSL
+## Contrastive Shapelet Learning for General-purpose Unsupervised (Self-supervised) Multivariate Time Series Representation Learning
+
+</div>
+
+## References
+Please consider citing our related work if you find them helpful:
+* Zhiyu Liang, Jianfeng Zhang, Chen Liang, Hongzhi Wang, Zheng Liang, and Lujia Pan. 2023. A Shapelet-Based Framework for Unsupervised Multivariate Time Series Representation Learning. Proc. VLDB Endow. 17, 3, 386–399. https://doi.org/10.14778/3632093.3632103
+* Zhiyu Liang, Xiongfei Li, Chen Liang, Yuchen Hu, Yutong Zhao, Zheng Liang, Jianfeng Zhang, Hongzhi Wang, and Lujia Pan. 2026. Towards GPU memory-aware efficient contrastive shapelet learning for unsupervised representation learning in multivariate time series. The VLDB Journal 35, 5. https://doi.org/10.1007/s00778-026-00996-2
+* Zhiyu Liang, Chen Liang, Zheng Liang, Hongzhi Wang, and Bo Zheng. 2024. TimeCSL: Unsupervised Contrastive Learning of General Shapelets for Explorable Time Series Analysis. Proc. VLDB Endow. 17, 12, 4489–4492. https://doi.org/10.14778/3685800.3685907
 
 ## Requirements
 * Python3.x
